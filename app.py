@@ -75,8 +75,20 @@ with st.sidebar:
 if uploaded_file is None:
     st.info("👈 왼쪽 사이드바에서 CSV 파일을 업로드해주세요")
     
+    # 샘플 데이터로 체험하기
     st.markdown("---")
-    st.subheader("📥 샘플 데이터")
+    st.subheader("🎯 빠른 시작")
+    
+    col_demo1, col_demo2 = st.columns([1, 2])
+    with col_demo1:
+        if st.button("🚀 샘플 데이터로 체험하기", type="primary", use_container_width=True):
+            st.session_state['use_sample'] = True
+            st.rerun()
+    with col_demo2:
+        st.info("💡 샘플 데이터를 자동으로 로드하여 바로 기능을 체험해보세요!")
+    
+    st.markdown("---")
+    st.subheader("📥 샘플 데이터 다운로드")
     
     col1, col2 = st.columns(2)
     
@@ -114,7 +126,22 @@ if uploaded_file is None:
 
 # 데이터 로드
 try:
-    df = load_data(uploaded_file)
+    # 샘플 데이터 사용 여부 확인
+    if 'use_sample' in st.session_state and st.session_state['use_sample'] and uploaded_file is None:
+        # 샘플 데이터 로드
+        import os
+        sample_path = os.path.join('data', 'sample.csv')
+        if os.path.exists(sample_path):
+            with open(sample_path, 'r', encoding='utf-8-sig') as f:
+                df = load_data(f)
+            st.success(f"✅ 샘플 데이터 로드 완료! ({len(df)}건)")
+            st.info("💡 사이드바에서 직접 CSV 파일을 업로드하면 자신의 데이터를 분석할 수 있습니다")
+        else:
+            st.error("샘플 데이터 파일을 찾을 수 없습니다")
+            st.session_state['use_sample'] = False
+            st.stop()
+    else:
+        df = load_data(uploaded_file)
     
     if use_ai:
         if '분류' not in df.columns or df['분류'].isna().any() or (df['분류'] == '기타').any():
@@ -178,7 +205,12 @@ with tab1:
                 title="지출 카테고리 분포",
                 hole=0.4
             )
-            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+            # 금액과 퍼센트 함께 표시
+            fig_pie.update_traces(
+                textposition='inside',
+                textinfo='label+percent',
+                hovertemplate='<b>%{label}</b><br>금액: %{value:,.0f}원<br>비율: %{percent}<extra></extra>'
+            )
             st.plotly_chart(fig_pie, use_container_width=True)
         else:
             st.info("지출 데이터가 없습니다")
@@ -213,45 +245,76 @@ with tab1:
     st.markdown("---")
     st.subheader("📄 월간 리포트 생성")
     
-    if st.button("📄 PDF 리포트 생성", type="primary", use_container_width=True):
-        with st.spinner("📝 리포트 생성 중... (10-20초 소요)"):
-            try:
-                pdf_buffer = pdf_generator.generate_report(df, budget_manager)
-                st.success("✅ 리포트 생성 완료!")
-                
-                # PDF 미리보기 (전체 너비)
-                st.markdown("### 📋 PDF 미리보기")
-                pdf_buffer.seek(0)
-                base64_pdf = base64.b64encode(pdf_buffer.read()).decode('utf-8')
-                
-                pdf_display = f'''
-                    <div style="width: 100%; height: 1000px; border: 2px solid #e0e0e0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                        <iframe src="data:application/pdf;base64,{base64_pdf}" 
-                                width="100%" 
-                                height="100%" 
-                                type="application/pdf"
-                                style="border: none;">
-                        </iframe>
-                    </div>
-                '''
-                st.markdown(pdf_display, unsafe_allow_html=True)
-                
-                st.markdown("")  # 공간 추가
-                
-                # 다운로드 버튼
-                pdf_buffer.seek(0)
-                col_center = st.columns([1, 2, 1])[1]
-                with col_center:
-                    st.download_button(
-                        label="📥 PDF 다운로드",
-                        data=pdf_buffer,
-                        file_name=f"expense_report_{pd.Timestamp.now().strftime('%Y%m%d')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-            except Exception as e:
-                st.error(f"❌ PDF 생성 실패: {str(e)}")
-                st.info("💡 kaleido 라이브러리 설치가 필요할 수 있습니다: pip install kaleido")
+    # 날짜 범위 선택
+    col_date1, col_date2 = st.columns(2)
+    with col_date1:
+        start_date = st.date_input(
+            "시작 날짜",
+            value=df['날짜'].min(),
+            min_value=df['날짜'].min(),
+            max_value=df['날짜'].max(),
+            help="PDF에 포함할 시작 날짜를 선택하세요"
+        )
+    
+    with col_date2:
+        end_date = st.date_input(
+            "종료 날짜",
+            value=df['날짜'].max(),
+            min_value=df['날짜'].min(),
+            max_value=df['날짜'].max(),
+            help="PDF에 포함할 종료 날짜를 선택하세요"
+        )
+    
+    # 날짜 범위 검증
+    if start_date > end_date:
+        st.error("⚠️ 시작 날짜는 종료 날짜보다 이전이어야 합니다")
+    else:
+        # 선택된 기간의 데이터 필터링
+        from utils.preprocess import filter_by_date_range
+        filtered_df = filter_by_date_range(df, start_date, end_date)
+        
+        st.info(f"📅 선택 기간: {start_date} ~ {end_date} ({len(filtered_df)}건)")
+        
+        if st.button("📄 PDF 리포트 생성", type="primary", use_container_width=True):
+            with st.spinner("📝 리포트 생성 중... (10-20초 소요)"):
+                try:
+                    # 필터링된 데이터로 PDF 생성
+                    pdf_buffer = pdf_generator.generate_report(filtered_df, budget_manager)
+                    st.success("✅ 리포트 생성 완료!")
+                    
+                    # PDF 미리보기 (전체 너비)
+                    st.markdown("### 📋 PDF 미리보기")
+                    pdf_buffer.seek(0)
+                    base64_pdf = base64.b64encode(pdf_buffer.read()).decode('utf-8')
+                    
+                    pdf_display = f'''
+                        <div style="width: 100%; height: 1000px; border: 2px solid #e0e0e0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <iframe src="data:application/pdf;base64,{base64_pdf}" 
+                                    width="100%" 
+                                    height="100%" 
+                                    type="application/pdf"
+                                    style="border: none;">
+                            </iframe>
+                        </div>
+                    '''
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    
+                    st.markdown("")  # 공간 추가
+                    
+                    # 다운로드 버튼
+                    pdf_buffer.seek(0)
+                    col_center = st.columns([1, 2, 1])[1]
+                    with col_center:
+                        st.download_button(
+                            label="📥 PDF 다운로드",
+                            data=pdf_buffer,
+                            file_name=f"expense_report_{start_date}_{end_date}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                except Exception as e:
+                    st.error(f"❌ PDF 생성 실패: {str(e)}")
+                    st.info("💡 kaleido 라이브러리 설치가 필요할 수 있습니다: pip install kaleido")
 
 # 탭2: 상세 분석
 with tab2:
