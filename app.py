@@ -14,6 +14,8 @@ from utils.preprocess import (
     filter_by_date_range
 )
 from utils.ai_categorizer import CategoryClassifier
+from utils.budget_manager import BudgetManager
+from utils.pdf_generator import PDFReportGenerator
 
 
 # 페이지 설정
@@ -32,6 +34,14 @@ def get_classifier():
     return classifier
 
 classifier = get_classifier()
+
+# 예산 관리자 초기화
+@st.cache_resource
+def get_budget_manager():
+    """예산 관리자 싱글톤"""
+    return BudgetManager()
+
+budget_manager = get_budget_manager()
 
 # 타이틀
 st.title("💰 개인 가계부 분석기")
@@ -142,10 +152,11 @@ except Exception as e:
     st.stop()
 
 # 탭 구성
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 대시보드", 
     "📈 상세 분석", 
     "📅 월별 추이", 
+    "💰 예산 관리",
     "🔍 데이터 탐색",
     "🤖 AI 학습"
 ])
@@ -282,8 +293,143 @@ with tab3:
         use_container_width=True
     )
 
-# ========== 탭4: 데이터 탐색 ==========
+# ========== 탭4: 예산 관리 ==========
 with tab4:
+    st.subheader("💰 예산 관리")
+    
+    # 예산 알림
+    alerts = budget_manager.get_alerts(df)
+    if alerts:
+        st.markdown("### 🔔 알림")
+        for alert in alerts:
+            if alert['level'] == 'error':
+                st.error(alert['message'])
+            elif alert['level'] == 'warning':
+                st.warning(alert['message'])
+            else:
+                st.info(alert['message'])
+        st.markdown("---")
+    
+    # 전체 요약
+    summary = budget_manager.get_monthly_summary(df)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("💵 총 예산", f"{summary['총_예산']:,.0f}원")
+    with col2:
+        st.metric("💸 총 지출", f"{summary['총_지출']:,.0f}원")
+    with col3:
+        st.metric("💰 총 잔여", f"{summary['총_잔여']:,.0f}원")
+    with col4:
+        st.metric("📊 전체 사용률", f"{summary['전체_사용률']:.1f}%")
+    
+    st.markdown("---")
+    
+    # 예산 설정 섹션
+    col_left, col_right = st.columns([1, 1])
+    
+    with col_left:
+        st.markdown("### ⚙️ 예산 설정")
+        
+        # 카테고리 선택
+        categories = df['분류'].unique().tolist()
+        selected_category = st.selectbox("카테고리 선택", categories)
+        
+        # 현재 예산 표시
+        current_budget = budget_manager.get_budget(selected_category)
+        st.info(f"현재 예산: {current_budget:,.0f}원")
+        
+        # 예산 입력
+        new_budget = st.number_input(
+            "새 예산 설정 (원)",
+            min_value=0,
+            value=int(current_budget) if current_budget > 0 else 100000,
+            step=10000
+        )
+        
+        col_btn1, col_btn2 = st.columns(2)
+        
+        with col_btn1:
+            if st.button("💾 예산 저장", type="primary"):
+                budget_manager.set_budget(selected_category, new_budget)
+                st.success(f"✅ {selected_category} 예산이 {new_budget:,.0f}원으로 설정되었습니다!")
+                st.rerun()
+        
+        with col_btn2:
+            if st.button("🗑️ 예산 삭제"):
+                budget_manager.delete_budget(selected_category)
+                st.success(f"✅ {selected_category} 예산이 삭제되었습니다!")
+                st.rerun()
+        
+        # 예산 추천
+        st.markdown("---")
+        st.markdown("### 💡 AI 예산 추천")
+        st.caption("과거 지출 평균 + 20% 여유분")
+        
+        if st.button("🔮 예산 추천 받기"):
+            suggested = budget_manager.suggest_budget(df)
+            
+            st.markdown("**추천 예산:**")
+            for cat, amount in suggested.items():
+                st.write(f"- **{cat}**: {amount:,.0f}원")
+            
+            if st.button("📥 추천 예산 일괄 적용"):
+                for cat, amount in suggested.items():
+                    budget_manager.set_budget(cat, amount)
+                st.success("✅ 추천 예산이 일괄 적용되었습니다!")
+                st.rerun()
+    
+    with col_right:
+        st.markdown("### 📊 예산 현황")
+        
+        analysis = budget_manager.analyze_spending(df)
+        
+        if not analysis.empty:
+            # 데이터프레임 표시
+            st.dataframe(
+                analysis.style.format({
+                    '예산': '{:,.0f}원',
+                    '지출': '{:,.0f}원',
+                    '잔여': '{:,.0f}원',
+                    '사용률(%)': '{:.1f}%'
+                }),
+                use_container_width=True
+            )
+            
+            # 진행률 바 차트
+            st.markdown("### 📈 카테고리별 사용률")
+            
+            fig_budget = go.Figure()
+            
+            for _, row in analysis.iterrows():
+                color = '#EF4444' if row['사용률(%)'] >= 100 else \
+                        '#F59E0B' if row['사용률(%)'] >= 80 else \
+                        '#10B981'
+                
+                fig_budget.add_trace(go.Bar(
+                    x=[min(row['사용률(%)'], 100)],
+                    y=[row['카테고리']],
+                    orientation='h',
+                    name=row['카테고리'],
+                    marker_color=color,
+                    text=f"{row['사용률(%)']:.1f}%",
+                    textposition='inside',
+                    showlegend=False
+                ))
+            
+            fig_budget.update_layout(
+                xaxis_title="사용률 (%)",
+                xaxis_range=[0, 100],
+                height=300,
+                margin=dict(l=0, r=0, t=0, b=0)
+            )
+            
+            st.plotly_chart(fig_budget, use_container_width=True)
+        else:
+            st.info("예산이 설정된 카테고리가 없습니다. 왼쪽에서 예산을 설정해주세요.")
+
+# ========== 탭5: 데이터 탐색 ==========
+with tab5:
     st.subheader("🔍 원본 데이터 탐색")
     
     col_f1, col_f2 = st.columns(2)
@@ -341,8 +487,8 @@ with tab4:
         mime="text/csv"
     )
 
-# ========== 탭5: AI 학습 ==========
-with tab5:
+# ========== 탭6: AI 학습 ==========
+with tab6:
     st.subheader("🤖 AI 모델 학습 및 평가")
     
     st.markdown("""
