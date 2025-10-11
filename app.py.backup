@@ -6,7 +6,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import base64
 from utils.preprocess import (
     load_data, 
     summarize_by_category, 
@@ -68,9 +67,11 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### 📋 CSV 형식 안내")
-    st.code("""날짜,적요,금액,분류,메모
+    st.code("""
+날짜,적요,금액,분류,메모
 2025-01-02,스타벅스,-4500,카페,아메리카노
-2025-01-03,월급,2500000,급여,1월 급여""")
+2025-01-03,월급,2500000,급여,1월 급여
+    """)
 
 if uploaded_file is None:
     st.info("👈 왼쪽 사이드바에서 CSV 파일을 업로드해주세요")
@@ -87,10 +88,11 @@ if uploaded_file is None:
 2025-01-03,월급,2500000,급여,1월 급여
 2025-01-04,이마트,-75000,식비,장보기
 2025-01-05,넷플릭스,-14500,구독,월구독료
-2025-01-10,CGV,-32000,여가,영화관람"""
+2025-01-10,CGV,-32000,여가,영화관람
+"""
         st.download_button(
             label="샘플 CSV 다운로드",
-            data=sample_data.encode('utf-8-sig'),  # UTF-8 BOM 추가
+            data=sample_data,
             file_name="sample_expense.csv",
             mime="text/csv"
         )
@@ -102,10 +104,11 @@ if uploaded_file is None:
 2025-01-03,월급,2500000,1월 급여
 2025-01-04,이마트,-75000,장보기
 2025-01-05,넷플릭스,-14500,월구독료
-2025-01-10,CGV,-32000,영화관람"""
+2025-01-10,CGV,-32000,영화관람
+"""
         st.download_button(
             label="AI용 샘플 다운로드",
-            data=sample_data_ai.encode('utf-8-sig'),  # UTF-8 BOM 추가
+            data=sample_data_ai,
             file_name="sample_expense_ai.csv",
             mime="text/csv"
         )
@@ -151,7 +154,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🤖 AI 학습"
 ])
 
-# 탭1: 대시보드
+# ========== 탭1: 대시보드 ==========
 with tab1:
     metrics = get_summary_metrics(df)
     
@@ -192,68 +195,77 @@ with tab1:
             x=monthly_summary.index,
             y=monthly_summary['수입'],
             name='수입',
-            marker_color='#4CAF50'
+            marker_color='#4CAF50',
+            text=monthly_summary['수입'],
+            texttemplate='%{text:,.0f}',
+            textposition='outside'
         ))
         fig_bar.add_trace(go.Bar(
             x=monthly_summary.index,
             y=monthly_summary['지출'],
             name='지출',
-            marker_color='#FF5252'
+            marker_color='#FF5252',
+            text=monthly_summary['지출'],
+            texttemplate='%{text:,.0f}',
+            textposition='outside'
         ))
         fig_bar.update_layout(
             barmode='group',
             xaxis_title="월",
             yaxis_title="금액 (원)",
             legend=dict(orientation="h", y=1.1),
-            xaxis=dict(type='category')  # 카테고리 타입으로 설정
+            xaxis=dict(
+                tickformat='%Y-%m',  # "2025-01" 형식
+                dtick='M1'
+            )
         )
         st.plotly_chart(fig_bar, use_container_width=True)
     
-    # PDF 리포트 생성
+    # 🆕 PDF 리포트 생성 및 미리보기
     st.markdown("---")
     st.subheader("📄 월간 리포트 생성")
     
-    if st.button("📄 PDF 리포트 생성", type="primary", use_container_width=True):
-        with st.spinner("📝 리포트 생성 중... (10-20초 소요)"):
-            try:
-                pdf_buffer = pdf_generator.generate_report(df, budget_manager)
-                st.success("✅ 리포트 생성 완료!")
-                
-                # PDF 미리보기 (전체 너비)
-                st.markdown("### 📋 PDF 미리보기")
-                pdf_buffer.seek(0)
-                base64_pdf = base64.b64encode(pdf_buffer.read()).decode('utf-8')
-                
-                pdf_display = f'''
-                    <div style="width: 100%; height: 1000px; border: 2px solid #e0e0e0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+    col_pdf1, col_pdf2 = st.columns([1, 3])
+    
+    with col_pdf1:
+        if st.button("📄 PDF 리포트 생성", type="primary"):
+            with st.spinner("📝 리포트 생성 중... (10-20초 소요)"):
+                try:
+                    pdf_buffer = pdf_generator.generate_report(df, budget_manager)
+                    st.success("✅ 리포트 생성 완료!")
+                    
+                    # PDF 미리보기 (iframe 사용)
+                    import base64
+                    pdf_buffer.seek(0)
+                    base64_pdf = base64.b64encode(pdf_buffer.read()).decode('utf-8')
+                    
+                    # PDF 뷰어 표시
+                    pdf_display = f'''
                         <iframe src="data:application/pdf;base64,{base64_pdf}" 
                                 width="100%" 
-                                height="100%" 
+                                height="800px" 
                                 type="application/pdf"
-                                style="border: none;">
+                                style="border: 1px solid #ddd; border-radius: 5px;">
                         </iframe>
-                    </div>
-                '''
-                st.markdown(pdf_display, unsafe_allow_html=True)
-                
-                st.markdown("")  # 공간 추가
-                
-                # 다운로드 버튼
-                pdf_buffer.seek(0)
-                col_center = st.columns([1, 2, 1])[1]
-                with col_center:
+                    '''
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    
+                    # 다운로드 버튼
+                    pdf_buffer.seek(0)
                     st.download_button(
                         label="📥 PDF 다운로드",
                         data=pdf_buffer,
                         file_name=f"expense_report_{pd.Timestamp.now().strftime('%Y%m%d')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
+                        mime="application/pdf"
                     )
-            except Exception as e:
-                st.error(f"❌ PDF 생성 실패: {str(e)}")
-                st.info("💡 kaleido 라이브러리 설치가 필요할 수 있습니다: pip install kaleido")
+                except Exception as e:
+                    st.error(f"❌ PDF 생성 실패: {str(e)}")
+                    st.info("💡 kaleido 라이브러리 설치가 필요할 수 있습니다: pip install kaleido")
+    
+    with col_pdf2:
+        st.info("💡 전문적인 월간 리포트를 PDF로 저장하세요 (차트, 예산 현황, 거래 내역 포함)")
 
-# 탭2: 상세 분석
+# ========== 탭2: 상세 분석 ==========
 with tab2:
     st.subheader("🔍 카테고리별 상세 분석")
     
@@ -283,7 +295,7 @@ with tab2:
     else:
         st.info("지출 데이터가 없습니다")
 
-# 탭3: 월별 추이
+# ========== 탭3: 월별 추이 ==========
 with tab3:
     st.subheader("📅 월별 수입/지출 추이")
     
@@ -317,8 +329,19 @@ with tab3:
     fig_line.update_layout(
         xaxis_title="월",
         yaxis_title="금액 (원)",
-        legend=dict(orientation="h", y=1.1),
-        xaxis=dict(type='category')  # 카테고리 타입으로 설정
+        legend=dict(orientation="h", y=1.1)
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
+    
+    st.markdown("### 📊 월별 상세 내역")
+    monthly_display = monthly_summary.copy()
+    monthly_display.columns = ['수입', '지출', '잔액']
+    st.dataframe(
+        monthly_display.style.format('{:,.0f}원'),
+        use_container_width=True
+    )
+        yaxis_title="금액 (원)",
+        legend=dict(orientation="h", y=1.1)
     )
     st.plotly_chart(fig_line, use_container_width=True)
     
@@ -330,7 +353,7 @@ with tab3:
         use_container_width=True
     )
 
-# 탭4: 예산 관리
+# ========== 탭4: 예산 관리 ==========
 with tab4:
     st.subheader("💰 예산 관리")
     
@@ -430,7 +453,9 @@ with tab4:
             fig_budget = go.Figure()
             
             for _, row in analysis.iterrows():
-                color = '#EF4444' if row['사용률(%)'] >= 100 else '#F59E0B' if row['사용률(%)'] >= 80 else '#10B981'
+                color = '#EF4444' if row['사용률(%)'] >= 100 else \
+                        '#F59E0B' if row['사용률(%)'] >= 80 else \
+                        '#10B981'
                 
                 fig_budget.add_trace(go.Bar(
                     x=[min(row['사용률(%)'], 100)],
@@ -454,7 +479,7 @@ with tab4:
         else:
             st.info("예산이 설정된 카테고리가 없습니다. 왼쪽에서 예산을 설정해주세요.")
 
-# 탭5: 데이터 탐색
+# ========== 탭5: 데이터 탐색 ==========
 with tab5:
     st.subheader("🔍 원본 데이터 탐색")
     
@@ -498,7 +523,9 @@ with tab5:
         display_cols.append('메모')
     
     st.dataframe(
-        display_df[display_cols].style.format({'금액': '{:,.0f}원'}),
+        display_df[display_cols].style.format({
+            '금액': '{:,.0f}원'
+        }),
         use_container_width=True
     )
     
@@ -510,7 +537,7 @@ with tab5:
         mime="text/csv"
     )
 
-# 탭6: AI 학습
+# ========== 탭6: AI 학습 ==========
 with tab6:
     st.subheader("🤖 AI 모델 학습 및 평가")
     
