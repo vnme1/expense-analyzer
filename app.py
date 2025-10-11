@@ -1,6 +1,7 @@
 """
 Expense Analyzer - 개인 가계부 분석 대시보드
-Streamlit 기반 인터랙티브 재무 분석 도구 + AI 자동 분류 + PDF 리포트 + 통계 대시보드
+Streamlit 기반 인터랙티브 재무 분석 도구
+v2.3 - Excel 지원 + 통계 + 카테고리 관리 + 데이터 검증
 """
 import streamlit as st
 import pandas as pd
@@ -18,6 +19,9 @@ from utils.preprocess import (
 from utils.ai_categorizer import CategoryClassifier
 from utils.budget_manager import BudgetManager
 from utils.pdf_generator import PDFReportGenerator
+from utils.category_manager import CategoryManager
+from utils.data_validator import DataValidator
+from utils.export_manager import ExportManager
 
 
 st.set_page_config(
@@ -43,9 +47,27 @@ def get_pdf_generator():
     """PDF 생성기 싱글톤"""
     return PDFReportGenerator()
 
+@st.cache_resource
+def get_category_manager():
+    """카테고리 관리자 싱글톤"""
+    return CategoryManager()
+
+@st.cache_resource
+def get_data_validator():
+    """데이터 검증기 싱글톤"""
+    return DataValidator()
+
+@st.cache_resource
+def get_export_manager():
+    """내보내기 관리자 싱글톤"""
+    return ExportManager()
+
 classifier = get_classifier()
 budget_manager = get_budget_manager()
 pdf_generator = get_pdf_generator()
+category_manager = get_category_manager()
+data_validator = get_data_validator()
+export_manager = get_export_manager()
 
 st.title("💰 개인 가계부 분석기")
 st.markdown("**CSV/Excel 파일을 업로드하여 수입/지출을 분석하세요 + AI 자동 분류 🤖**")
@@ -179,14 +201,16 @@ except Exception as e:
     st.error(f"❌ 파일 로드 오류: {str(e)}")
     st.stop()
 
-# 탭 구성
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+# 탭 구성 (9개 탭)
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "📊 대시보드", 
     "📈 상세 분석", 
     "📅 월별 추이", 
     "💰 예산 관리",
     "📉 통계",
     "🔍 데이터 탐색",
+    "📁 카테고리 관리",
+    "✅ 데이터 검증",
     "🤖 AI 학습"
 ])
 
@@ -690,6 +714,30 @@ with tab5:
     with col_w2:
         min_day = weekday_avg.idxmin()
         st.success(f"📉 **가장 적게 쓰는 요일**: {min_day} ({weekday_avg.min():,.0f}원/건)")
+    
+    # 통계 내보내기
+    st.markdown("---")
+    st.markdown("### 📥 통계 데이터 내보내기")
+    
+    col_export1, col_export2 = st.columns(2)
+    
+    with col_export1:
+        if st.button("📊 통계 Excel 다운로드", use_container_width=True):
+            with st.spinner("Excel 생성 중..."):
+                excel_buffer = export_manager.export_statistics_to_excel(df, stats)
+                
+                filename = export_manager.get_filename_with_timestamp('statistics')
+                
+                st.download_button(
+                    label="📥 Excel 파일 다운로드",
+                    data=excel_buffer,
+                    file_name=f"{filename}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+    
+    with col_export2:
+        st.info("💡 모든 통계 데이터가 여러 시트로 구성된 Excel 파일로 저장됩니다")
 
 # 탭6: 데이터 탐색
 with tab6:
@@ -747,8 +795,230 @@ with tab6:
         mime="text/csv"
     )
 
-# 탭7: AI 학습
+# 탭7: 카테고리 관리
 with tab7:
+    st.subheader("📁 카테고리 관리")
+    
+    st.markdown("""
+    카테고리를 추가, 수정, 삭제하거나 여러 카테고리를 하나로 병합할 수 있습니다.
+    """)
+    
+    st.markdown("---")
+    
+    # 현재 카테고리 목록
+    st.markdown("### 📋 현재 카테고리")
+    
+    categories = category_manager.get_all_categories()
+    cat_stats = category_manager.get_category_statistics(df)
+    
+    # 사용 현황 표시
+    category_usage = []
+    for cat in categories:
+        usage = cat_stats.get(cat, {'count': 0, 'exists': False})
+        category_usage.append({
+            '카테고리': cat,
+            '사용 건수': usage['count'],
+            '상태': '✅ 사용중' if usage['exists'] else '⚪ 미사용'
+        })
+    
+    usage_df = pd.DataFrame(category_usage)
+    st.dataframe(usage_df, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
+    # 기능 선택
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("### ➕ 카테고리 추가")
+        new_category = st.text_input("새 카테고리 이름", key="new_cat")
+        
+        if st.button("추가", type="primary", use_container_width=True):
+            result = category_manager.add_category(new_category)
+            if result['success']:
+                st.success(result['message'])
+                st.rerun()
+            else:
+                st.error(result['message'])
+    
+    with col2:
+        st.markdown("### ✏️ 카테고리 이름 변경")
+        old_cat = st.selectbox("변경할 카테고리", categories, key="old_cat")
+        new_cat_name = st.text_input("새 이름", key="rename_cat")
+        
+        if st.button("변경", use_container_width=True):
+            result = category_manager.rename_category(old_cat, new_cat_name)
+            if result['success']:
+                st.success(result['message'])
+                st.rerun()
+            else:
+                st.error(result['message'])
+    
+    with col3:
+        st.markdown("### 🗑️ 카테고리 삭제")
+        del_cat = st.selectbox("삭제할 카테고리", categories, key="del_cat")
+        
+        if st.button("삭제", use_container_width=True):
+            result = category_manager.delete_category(del_cat)
+            if result['success']:
+                st.success(result['message'])
+                st.warning(f"⚠️ 기존 '{del_cat}' 데이터는 '기타'로 변경됩니다")
+                st.rerun()
+            else:
+                st.error(result['message'])
+    
+    st.markdown("---")
+    
+    # 카테고리 병합
+    st.markdown("### 🔀 카테고리 병합")
+    st.caption("여러 카테고리를 하나로 합칠 수 있습니다 (예: '외식', '식당' → '식비')")
+    
+    col_merge1, col_merge2 = st.columns([2, 1])
+    
+    with col_merge1:
+        merge_sources = st.multiselect(
+            "병합할 카테고리 (여러 개 선택)",
+            categories,
+            key="merge_sources"
+        )
+    
+    with col_merge2:
+        merge_target = st.text_input("→ 통합될 카테고리", key="merge_target")
+    
+    if st.button("🔀 병합 실행", type="primary"):
+        if merge_sources and merge_target:
+            result = category_manager.merge_categories(merge_sources, merge_target)
+            if result['success']:
+                st.success(result['message'])
+                st.rerun()
+            else:
+                st.error(result['message'])
+        else:
+            st.warning("병합할 카테고리와 대상 카테고리를 모두 입력해주세요")
+    
+    st.markdown("---")
+    
+    # 초기화
+    st.markdown("### 🔄 기본 카테고리로 초기화")
+    st.warning("⚠️ 모든 사용자 정의 카테고리가 삭제되고 기본 카테고리로 복원됩니다")
+    
+    if st.button("기본값으로 초기화", use_container_width=True):
+        result = category_manager.reset_to_default()
+        st.success(result['message'])
+        st.rerun()
+
+# 탭8: 데이터 검증
+with tab8:
+    st.subheader("✅ 데이터 검증 및 품질 체크")
+    
+    st.markdown("""
+    업로드된 데이터의 오류, 이상치, 개선 사항을 자동으로 검사합니다.
+    """)
+    
+    st.markdown("---")
+    
+    # 검증 실행 버튼
+    if st.button("🔍 데이터 검증 시작", type="primary", use_container_width=True):
+        with st.spinner("검증 중..."):
+            validation_results = data_validator.validate(df)
+            summary = data_validator.get_summary()
+            
+            # 요약 표시
+            if summary['status'] == 'excellent':
+                st.success(summary['message'])
+            elif summary['status'] == 'error':
+                st.error(summary['message'])
+            elif summary['status'] == 'warning':
+                st.warning(summary['message'])
+            else:
+                st.info(summary['message'])
+            
+            st.markdown("---")
+            
+            # 오류 표시
+            if validation_results['errors']:
+                st.markdown("### ❌ 오류 (즉시 수정 필요)")
+                
+                for error in validation_results['errors']:
+                    with st.expander(f"🔴 {error['message']}", expanded=True):
+                        st.error(f"**심각도:** {error['severity']}")
+                        if 'details' in error:
+                            st.json(error['details'])
+            
+            # 경고 표시
+            if validation_results['warnings']:
+                st.markdown("### ⚠️ 경고 (확인 권장)")
+                
+                for warning in validation_results['warnings']:
+                    with st.expander(f"🟡 {warning['message']}"):
+                        st.warning(f"**심각도:** {warning['severity']}")
+                        
+                        if 'details' in warning:
+                            st.markdown("**상세 내역:**")
+                            details_df = pd.DataFrame(warning['details'])
+                            st.dataframe(details_df, use_container_width=True)
+                        
+                        if 'suggestion' in warning:
+                            st.info(f"💡 **제안:** {warning['suggestion']}")
+                        
+                        if 'threshold' in warning:
+                            st.caption(f"기준값: {warning['threshold']}")
+            
+            # 개선 제안 표시
+            if validation_results['suggestions']:
+                st.markdown("### 💡 개선 제안")
+                
+                for suggestion in validation_results['suggestions']:
+                    with st.expander(f"💡 {suggestion['message']}"):
+                        if 'suggestion' in suggestion:
+                            st.info(suggestion['suggestion'])
+                        
+                        if 'details' in suggestion:
+                            st.markdown("**상세 내역:**")
+                            if isinstance(suggestion['details'], list):
+                                details_df = pd.DataFrame(suggestion['details'])
+                                st.dataframe(details_df, use_container_width=True)
+                            else:
+                                st.json(suggestion['details'])
+            
+            st.markdown("---")
+            
+            # 통계 요약
+            st.markdown("### 📊 검증 통계")
+            
+            col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+            
+            with col_s1:
+                st.metric("총 검사 항목", summary['total_issues'])
+            with col_s2:
+                st.metric("오류", len(validation_results['errors']))
+            with col_s3:
+                st.metric("경고", len(validation_results['warnings']))
+            with col_s4:
+                st.metric("개선 제안", len(validation_results['suggestions']))
+    
+    else:
+        st.info("👆 위의 버튼을 클릭하여 데이터 검증을 시작하세요")
+        
+        st.markdown("---")
+        st.markdown("### 📋 검증 항목")
+        
+        checks = [
+            "✅ 필수 컬럼 확인 (날짜, 금액)",
+            "✅ 날짜 유효성 검사 (미래 날짜, 이상 범위)",
+            "✅ 금액 검사 (0원 거래, 비정상적 큰 금액)",
+            "✅ 중복 거래 탐지",
+            "✅ 통계적 이상치 탐지 (IQR 방법)",
+            "✅ 누락 항목 확인 (적요, 카테고리)",
+            "✅ 카테고리 일관성 검사",
+            "✅ 비슷한 카테고리 탐지"
+        ]
+        
+        for check in checks:
+            st.markdown(f"- {check}")
+
+# 탭9: AI 학습
+with tab9:
     st.subheader("🤖 AI 모델 학습 및 평가")
     
     st.markdown("""
@@ -818,4 +1088,4 @@ with tab7:
         st.success(f"🎯 예측 카테고리: **{predicted_category}**")
 
 st.markdown("---")
-st.caption("💡 Expense Analyzer v2.2 | Excel 지원 + 통계 대시보드 🤖")
+st.caption("💡 Expense Analyzer v2.3 | Excel + 통계 + 카테고리 관리 + 데이터 검증 🤖")
