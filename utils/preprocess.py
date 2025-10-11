@@ -1,6 +1,6 @@
 """
 데이터 전처리 모듈
-CSV 파일 로드, 데이터 정제, 집계 함수 제공
+CSV/Excel 파일 로드, 데이터 정제, 집계 함수 제공
 """
 import pandas as pd
 from datetime import datetime
@@ -8,15 +8,23 @@ from datetime import datetime
 
 def load_data(file):
     """
-    CSV 파일을 읽어 DataFrame으로 변환
+    CSV 또는 Excel 파일을 읽어 DataFrame으로 변환
     
     Args:
-        file: Streamlit file_uploader 객체
+        file: Streamlit file_uploader 객체 또는 파일 경로
         
     Returns:
         pd.DataFrame: 정제된 거래내역 데이터
     """
-    df = pd.read_csv(file, encoding='utf-8-sig')
+    # 파일 타입 확인
+    file_name = getattr(file, 'name', str(file))
+    
+    if file_name.endswith(('.xlsx', '.xls')):
+        # Excel 파일 읽기
+        df = pd.read_excel(file, engine='openpyxl')
+    else:
+        # CSV 파일 읽기
+        df = pd.read_csv(file, encoding='utf-8-sig')
     
     # 필수 컬럼 확인
     required_cols = ['날짜', '금액']
@@ -116,3 +124,52 @@ def filter_by_date_range(df, start_date, end_date):
     """
     mask = (df['날짜'] >= pd.to_datetime(start_date)) & (df['날짜'] <= pd.to_datetime(end_date))
     return df[mask]
+
+
+def get_statistics(df):
+    """
+    통계 지표 계산
+    
+    Args:
+        df: 전처리된 DataFrame
+        
+    Returns:
+        dict: 다양한 통계 지표
+    """
+    expense_df = df[df['구분'] == '지출']
+    income_df = df[df['구분'] == '수입']
+    
+    # 월별 데이터
+    monthly = summarize_by_month(df)
+    
+    stats = {
+        # 기본 지표
+        '총_수입': income_df['금액_절대값'].sum(),
+        '총_지출': expense_df['금액_절대값'].sum(),
+        '순수익': income_df['금액_절대값'].sum() - expense_df['금액_절대값'].sum(),
+        
+        # 평균 지표
+        '평균_지출': expense_df['금액_절대값'].mean() if len(expense_df) > 0 else 0,
+        '월평균_지출': monthly['지출'].mean() if len(monthly) > 0 else 0,
+        '월평균_수입': monthly['수입'].mean() if len(monthly) > 0 else 0,
+        
+        # 최대/최소
+        '최대_지출': expense_df['금액_절대값'].max() if len(expense_df) > 0 else 0,
+        '최소_지출': expense_df['금액_절대값'].min() if len(expense_df) > 0 else 0,
+        '최대_지출_항목': expense_df.loc[expense_df['금액_절대값'].idxmax(), '적요'] if len(expense_df) > 0 else '-',
+        
+        # 거래 건수
+        '총_거래건수': len(df),
+        '지출_건수': len(expense_df),
+        '수입_건수': len(income_df),
+        
+        # 카테고리
+        '카테고리_수': df['분류'].nunique(),
+        '최다_지출_카테고리': expense_df.groupby('분류')['금액_절대값'].sum().idxmax() if len(expense_df) > 0 else '-',
+        
+        # 저축률
+        '저축률': ((income_df['금액_절대값'].sum() - expense_df['금액_절대값'].sum()) / 
+                   income_df['금액_절대값'].sum() * 100) if income_df['금액_절대값'].sum() > 0 else 0
+    }
+    
+    return stats

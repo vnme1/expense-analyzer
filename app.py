@@ -1,6 +1,6 @@
 """
 Expense Analyzer - 개인 가계부 분석 대시보드
-Streamlit 기반 인터랙티브 재무 분석 도구 + AI 자동 분류 + PDF 리포트
+Streamlit 기반 인터랙티브 재무 분석 도구 + AI 자동 분류 + PDF 리포트 + 통계 대시보드
 """
 import streamlit as st
 import pandas as pd
@@ -11,7 +11,9 @@ from utils.preprocess import (
     load_data, 
     summarize_by_category, 
     summarize_by_month, 
-    get_summary_metrics
+    get_summary_metrics,
+    filter_by_date_range,
+    get_statistics
 )
 from utils.ai_categorizer import CategoryClassifier
 from utils.budget_manager import BudgetManager
@@ -46,15 +48,15 @@ budget_manager = get_budget_manager()
 pdf_generator = get_pdf_generator()
 
 st.title("💰 개인 가계부 분석기")
-st.markdown("**CSV 파일을 업로드하여 수입/지출을 분석하세요 + AI 자동 분류 🤖**")
+st.markdown("**CSV/Excel 파일을 업로드하여 수입/지출을 분석하세요 + AI 자동 분류 🤖**")
 
 # 사이드바
 with st.sidebar:
     st.header("📂 파일 업로드")
     uploaded_file = st.file_uploader(
-        "CSV 파일 선택",
-        type=['csv'],
-        help="날짜, 금액, 분류 컬럼이 포함된 CSV 파일"
+        "CSV 또는 Excel 파일 선택",
+        type=['csv', 'xlsx', 'xls'],
+        help="날짜, 금액, 분류 컬럼이 포함된 파일"
     )
     
     st.markdown("---")
@@ -67,15 +69,26 @@ with st.sidebar:
         st.info("💡 AI가 '적요' 내용을 분석하여 자동으로 카테고리를 분류합니다")
     
     st.markdown("---")
-    st.markdown("### 📋 CSV 형식 안내")
-    st.code("""날짜,적요,금액,분류,메모
+    st.markdown("### 📋 파일 형식 안내")
+    
+    tab_csv, tab_excel = st.tabs(["CSV", "Excel"])
+    
+    with tab_csv:
+        st.code("""날짜,적요,금액,분류,메모
 2025-01-02,스타벅스,-4500,카페,아메리카노
 2025-01-03,월급,2500000,급여,1월 급여""")
+    
+    with tab_excel:
+        st.markdown("""
+**Excel 파일 형식**
+- `.xlsx` 또는 `.xls` 확장자
+- 첫 번째 시트의 데이터를 읽음
+- 컬럼명은 CSV와 동일
+        """)
 
 if uploaded_file is None:
-    st.info("👈 왼쪽 사이드바에서 CSV 파일을 업로드해주세요")
+    st.info("👈 왼쪽 사이드바에서 CSV 또는 Excel 파일을 업로드해주세요")
     
-    # 샘플 데이터로 체험하기
     st.markdown("---")
     st.subheader("🎯 빠른 시작")
     
@@ -93,7 +106,7 @@ if uploaded_file is None:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("**1. 카테고리 포함 버전**")
+        st.markdown("**1. 카테고리 포함 버전 (CSV)**")
         sample_data = """날짜,적요,금액,분류,메모
 2025-01-02,스타벅스,-4500,카페,아메리카노
 2025-01-03,월급,2500000,급여,1월 급여
@@ -102,13 +115,13 @@ if uploaded_file is None:
 2025-01-10,CGV,-32000,여가,영화관람"""
         st.download_button(
             label="샘플 CSV 다운로드",
-            data=sample_data.encode('utf-8-sig'),  # UTF-8 BOM 추가
+            data=sample_data.encode('utf-8-sig'),
             file_name="sample_expense.csv",
             mime="text/csv"
         )
     
     with col2:
-        st.markdown("**2. AI 자동 분류용 (카테고리 없음)**")
+        st.markdown("**2. AI 자동 분류용 (CSV)**")
         sample_data_ai = """날짜,적요,금액,메모
 2025-01-02,스타벅스,-4500,아메리카노
 2025-01-03,월급,2500000,1월 급여
@@ -117,7 +130,7 @@ if uploaded_file is None:
 2025-01-10,CGV,-32000,영화관람"""
         st.download_button(
             label="AI용 샘플 다운로드",
-            data=sample_data_ai.encode('utf-8-sig'),  # UTF-8 BOM 추가
+            data=sample_data_ai.encode('utf-8-sig'),
             file_name="sample_expense_ai.csv",
             mime="text/csv"
         )
@@ -126,16 +139,14 @@ if uploaded_file is None:
 
 # 데이터 로드
 try:
-    # 샘플 데이터 사용 여부 확인
     if 'use_sample' in st.session_state and st.session_state['use_sample'] and uploaded_file is None:
-        # 샘플 데이터 로드
         import os
         sample_path = os.path.join('data', 'sample.csv')
         if os.path.exists(sample_path):
             with open(sample_path, 'r', encoding='utf-8-sig') as f:
                 df = load_data(f)
             st.success(f"✅ 샘플 데이터 로드 완료! ({len(df)}건)")
-            st.info("💡 사이드바에서 직접 CSV 파일을 업로드하면 자신의 데이터를 분석할 수 있습니다")
+            st.info("💡 사이드바에서 직접 CSV/Excel 파일을 업로드하면 자신의 데이터를 분석할 수 있습니다")
         else:
             st.error("샘플 데이터 파일을 찾을 수 없습니다")
             st.session_state['use_sample'] = False
@@ -169,11 +180,12 @@ except Exception as e:
     st.stop()
 
 # 탭 구성
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 대시보드", 
     "📈 상세 분석", 
     "📅 월별 추이", 
     "💰 예산 관리",
+    "📉 통계",
     "🔍 데이터 탐색",
     "🤖 AI 학습"
 ])
@@ -205,7 +217,6 @@ with tab1:
                 title="지출 카테고리 분포",
                 hole=0.4
             )
-            # 금액과 퍼센트 함께 표시
             fig_pie.update_traces(
                 textposition='inside',
                 textinfo='label+percent',
@@ -237,7 +248,7 @@ with tab1:
             xaxis_title="월",
             yaxis_title="금액 (원)",
             legend=dict(orientation="h", y=1.1),
-            xaxis=dict(type='category')  # 카테고리 타입으로 설정
+            xaxis=dict(type='category')
         )
         st.plotly_chart(fig_bar, use_container_width=True)
     
@@ -245,7 +256,6 @@ with tab1:
     st.markdown("---")
     st.subheader("📄 월간 리포트 생성")
     
-    # 날짜 범위 선택
     col_date1, col_date2 = st.columns(2)
     with col_date1:
         start_date = st.date_input(
@@ -265,12 +275,9 @@ with tab1:
             help="PDF에 포함할 종료 날짜를 선택하세요"
         )
     
-    # 날짜 범위 검증
     if start_date > end_date:
         st.error("⚠️ 시작 날짜는 종료 날짜보다 이전이어야 합니다")
     else:
-        # 선택된 기간의 데이터 필터링
-        from utils.preprocess import filter_by_date_range
         filtered_df = filter_by_date_range(df, start_date, end_date)
         
         st.info(f"📅 선택 기간: {start_date} ~ {end_date} ({len(filtered_df)}건)")
@@ -278,11 +285,9 @@ with tab1:
         if st.button("📄 PDF 리포트 생성", type="primary", use_container_width=True):
             with st.spinner("📝 리포트 생성 중... (10-20초 소요)"):
                 try:
-                    # 필터링된 데이터로 PDF 생성
                     pdf_buffer = pdf_generator.generate_report(filtered_df, budget_manager)
                     st.success("✅ 리포트 생성 완료!")
                     
-                    # PDF 미리보기 (전체 너비)
                     st.markdown("### 📋 PDF 미리보기")
                     pdf_buffer.seek(0)
                     base64_pdf = base64.b64encode(pdf_buffer.read()).decode('utf-8')
@@ -299,9 +304,8 @@ with tab1:
                     '''
                     st.markdown(pdf_display, unsafe_allow_html=True)
                     
-                    st.markdown("")  # 공간 추가
+                    st.markdown("")
                     
-                    # 다운로드 버튼
                     pdf_buffer.seek(0)
                     col_center = st.columns([1, 2, 1])[1]
                     with col_center:
@@ -381,7 +385,7 @@ with tab3:
         xaxis_title="월",
         yaxis_title="금액 (원)",
         legend=dict(orientation="h", y=1.1),
-        xaxis=dict(type='category')  # 카테고리 타입으로 설정
+        xaxis=dict(type='category')
     )
     st.plotly_chart(fig_line, use_container_width=True)
     
@@ -517,8 +521,178 @@ with tab4:
         else:
             st.info("예산이 설정된 카테고리가 없습니다. 왼쪽에서 예산을 설정해주세요.")
 
-# 탭5: 데이터 탐색
+# 탭5: 통계 대시보드
 with tab5:
+    st.subheader("📉 고급 통계 분석")
+    
+    stats = get_statistics(df)
+    
+    # 1. 핵심 지표 카드
+    st.markdown("### 💡 핵심 지표")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "월평균 지출",
+            f"{stats['월평균_지출']:,.0f}원",
+            help="전체 기간의 월별 평균 지출액"
+        )
+    
+    with col2:
+        st.metric(
+            "평균 거래 금액",
+            f"{stats['평균_지출']:,.0f}원",
+            help="지출 건당 평균 금액"
+        )
+    
+    with col3:
+        st.metric(
+            "저축률",
+            f"{stats['저축률']:.1f}%",
+            help="(수입 - 지출) / 수입 × 100"
+        )
+    
+    with col4:
+        st.metric(
+            "카테고리 수",
+            f"{stats['카테고리_수']}개",
+            help="사용 중인 카테고리 개수"
+        )
+    
+    st.markdown("---")
+    
+    # 2. 상세 통계 테이블
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        st.markdown("### 💸 지출 통계")
+        
+        expense_stats = pd.DataFrame({
+            '항목': [
+                '총 지출',
+                '월평균 지출',
+                '건당 평균 지출',
+                '최대 단건 지출',
+                '최소 단건 지출',
+                '지출 건수'
+            ],
+            '값': [
+                f"{stats['총_지출']:,.0f}원",
+                f"{stats['월평균_지출']:,.0f}원",
+                f"{stats['평균_지출']:,.0f}원",
+                f"{stats['최대_지출']:,.0f}원",
+                f"{stats['최소_지출']:,.0f}원",
+                f"{stats['지출_건수']}건"
+            ]
+        })
+        
+        st.dataframe(
+            expense_stats,
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        st.info(f"💡 **최대 지출 항목**: {stats['최대_지출_항목']}")
+    
+    with col_right:
+        st.markdown("### 💵 수입 & 카테고리")
+        
+        income_stats = pd.DataFrame({
+            '항목': [
+                '총 수입',
+                '월평균 수입',
+                '순수익 (수입-지출)',
+                '저축률',
+                '수입 건수',
+                '최다 지출 카테고리'
+            ],
+            '값': [
+                f"{stats['총_수입']:,.0f}원",
+                f"{stats['월평균_수입']:,.0f}원",
+                f"{stats['순수익']:,.0f}원",
+                f"{stats['저축률']:.1f}%",
+                f"{stats['수입_건수']}건",
+                stats['최다_지출_카테고리']
+            ]
+        })
+        
+        st.dataframe(
+            income_stats,
+            use_container_width=True,
+            hide_index=True
+        )
+    
+    st.markdown("---")
+    
+    # 3. 지출 분포 히스토그램
+    st.markdown("### 📊 지출 금액 분포")
+    
+    expense_df = df[df['구분'] == '지출']
+    
+    if len(expense_df) > 0:
+        fig_hist = px.histogram(
+            expense_df,
+            x='금액_절대값',
+            nbins=20,
+            labels={'금액_절대값': '지출 금액 (원)', 'count': '거래 건수'},
+            title='지출 금액 분포 히스토그램',
+            color_discrete_sequence=['#FF5252']
+        )
+        
+        fig_hist.update_layout(
+            xaxis_title="지출 금액 (원)",
+            yaxis_title="거래 건수",
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig_hist, use_container_width=True)
+    else:
+        st.info("지출 데이터가 없습니다")
+    
+    st.markdown("---")
+    
+    # 4. 요일별 지출 분석
+    st.markdown("### 📅 요일별 지출 패턴")
+    
+    expense_df_copy = expense_df.copy()
+    expense_df_copy['요일'] = expense_df_copy['날짜'].dt.day_name()
+    weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    weekday_map = {
+        'Monday': '월', 'Tuesday': '화', 'Wednesday': '수',
+        'Thursday': '목', 'Friday': '금', 'Saturday': '토', 'Sunday': '일'
+    }
+    
+    weekday_spending = expense_df_copy.groupby('요일')['금액_절대값'].sum().reindex(weekday_order, fill_value=0)
+    weekday_spending.index = [weekday_map[day] for day in weekday_spending.index]
+    
+    fig_weekday = px.bar(
+        x=weekday_spending.index,
+        y=weekday_spending.values,
+        labels={'x': '요일', 'y': '총 지출 (원)'},
+        title='요일별 지출 금액',
+        color=weekday_spending.values,
+        color_continuous_scale='Reds'
+    )
+    
+    fig_weekday.update_layout(showlegend=False)
+    st.plotly_chart(fig_weekday, use_container_width=True)
+    
+    # 요일별 평균
+    weekday_avg = expense_df_copy.groupby('요일')['금액_절대값'].mean().reindex(weekday_order, fill_value=0)
+    weekday_avg.index = [weekday_map[day] for day in weekday_avg.index]
+    
+    col_w1, col_w2 = st.columns(2)
+    
+    with col_w1:
+        max_day = weekday_avg.idxmax()
+        st.info(f"📈 **가장 많이 쓰는 요일**: {max_day} ({weekday_avg.max():,.0f}원/건)")
+    
+    with col_w2:
+        min_day = weekday_avg.idxmin()
+        st.success(f"📉 **가장 적게 쓰는 요일**: {min_day} ({weekday_avg.min():,.0f}원/건)")
+
+# 탭6: 데이터 탐색
+with tab6:
     st.subheader("🔍 원본 데이터 탐색")
     
     col_f1, col_f2 = st.columns(2)
@@ -573,8 +747,8 @@ with tab5:
         mime="text/csv"
     )
 
-# 탭6: AI 학습
-with tab6:
+# 탭7: AI 학습
+with tab7:
     st.subheader("🤖 AI 모델 학습 및 평가")
     
     st.markdown("""
@@ -583,7 +757,7 @@ with tab6:
     - 예: "스타벅스" → 카페, "이마트" → 식비, "CGV" → 여가
     
     ### 학습 방법
-    1. 카테고리가 포함된 CSV 파일 업로드
+    1. 카테고리가 포함된 CSV/Excel 파일 업로드
     2. 아래 '모델 학습' 버튼 클릭
     3. 이후 카테고리 없는 데이터도 자동 분류 가능!
     
@@ -644,4 +818,4 @@ with tab6:
         st.success(f"🎯 예측 카테고리: **{predicted_category}**")
 
 st.markdown("---")
-st.caption("💡 Expense Analyzer v2.1 | Powered by Streamlit, Plotly & AI 🤖")
+st.caption("💡 Expense Analyzer v2.2 | Excel 지원 + 통계 대시보드 🤖")
