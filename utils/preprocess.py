@@ -19,7 +19,7 @@ def load_data(file):
     df = pd.read_csv(file, encoding='utf-8-sig')
     
     # 필수 컬럼 확인
-    required_cols = ['날짜', '금액', '분류']
+    required_cols = ['날짜', '금액']
     if not all(col in df.columns for col in required_cols):
         raise ValueError(f"필수 컬럼이 누락되었습니다: {required_cols}")
     
@@ -36,6 +36,10 @@ def load_data(file):
     
     # 결측치 제거
     df = df.dropna(subset=['금액'])
+    
+    # 분류 컬럼이 없으면 기본값 설정
+    if '분류' not in df.columns:
+        df['분류'] = '기타'
     
     return df.sort_values('날짜')
 
