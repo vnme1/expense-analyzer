@@ -5,6 +5,7 @@
 import pandas as pd
 import json
 import os
+from pathlib import Path
 
 
 class BudgetManager:
@@ -15,19 +16,21 @@ class BudgetManager:
         Args:
             budget_file: 예산 데이터 저장 파일 경로
         """
-        self.budget_file = budget_file
+        # 프로젝트 루트 기준 절대 경로 생성
+        self.project_root = Path(__file__).parent.parent
+        self.budget_file = self.project_root / budget_file
         self.budgets = self.load_budgets()
     
     def load_budgets(self):
         """저장된 예산 불러오기"""
-        if os.path.exists(self.budget_file):
+        if self.budget_file.exists():
             with open(self.budget_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return {}
     
     def save_budgets(self):
         """예산 저장하기"""
-        os.makedirs(os.path.dirname(self.budget_file), exist_ok=True)
+        self.budget_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.budget_file, 'w', encoding='utf-8') as f:
             json.dump(self.budgets, f, ensure_ascii=False, indent=2)
     
@@ -79,11 +82,9 @@ class BudgetManager:
         Returns:
             pd.DataFrame: 카테고리별 예산 분석 결과
         """
-        # 카테고리별 지출 합계
         expense_df = df[df['구분'] == '지출']
         spending = expense_df.groupby('분류')['금액_절대값'].sum()
         
-        # 분석 결과 생성
         result = []
         
         for category in self.budgets.keys():
@@ -206,6 +207,6 @@ class BudgetManager:
         # 여유분 추가
         suggested = {}
         for category, avg_spent in monthly_avg.items():
-            suggested[category] = round(avg_spent * multiplier, -3)  # 1000원 단위 반올림
+            suggested[category] = round(avg_spent * multiplier, -3)
         
         return suggested

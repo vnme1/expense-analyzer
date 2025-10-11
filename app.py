@@ -1,6 +1,6 @@
 """
 Expense Analyzer - 개인 가계부 분석 대시보드
-Streamlit 기반 인터랙티브 재무 분석 도구 + AI 자동 분류
+Streamlit 기반 인터랙티브 재무 분석 도구 + AI 자동 분류 + PDF 리포트
 """
 import streamlit as st
 import pandas as pd
@@ -10,22 +10,19 @@ from utils.preprocess import (
     load_data, 
     summarize_by_category, 
     summarize_by_month, 
-    get_summary_metrics,
-    filter_by_date_range
+    get_summary_metrics
 )
 from utils.ai_categorizer import CategoryClassifier
 from utils.budget_manager import BudgetManager
 from utils.pdf_generator import PDFReportGenerator
 
 
-# 페이지 설정
 st.set_page_config(
     page_title="Expense Analyzer",
     page_icon="💰",
     layout="wide"
 )
 
-# AI 분류기 초기화
 @st.cache_resource
 def get_classifier():
     """AI 분류기 싱글톤"""
@@ -33,21 +30,24 @@ def get_classifier():
     classifier.load_model()
     return classifier
 
-classifier = get_classifier()
-
-# 예산 관리자 초기화
 @st.cache_resource
 def get_budget_manager():
     """예산 관리자 싱글톤"""
     return BudgetManager()
 
-budget_manager = get_budget_manager()
+@st.cache_resource
+def get_pdf_generator():
+    """PDF 생성기 싱글톤"""
+    return PDFReportGenerator()
 
-# 타이틀
+classifier = get_classifier()
+budget_manager = get_budget_manager()
+pdf_generator = get_pdf_generator()
+
 st.title("💰 개인 가계부 분석기")
 st.markdown("**CSV 파일을 업로드하여 수입/지출을 분석하세요 + AI 자동 분류 🤖**")
 
-# 사이드바 - 파일 업로드
+# 사이드바
 with st.sidebar:
     st.header("📂 파일 업로드")
     uploaded_file = st.file_uploader(
@@ -58,7 +58,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # AI 기능 설정
     st.header("🤖 AI 설정")
     use_ai = st.checkbox("AI 자동 분류 사용", value=False, 
                          help="'분류' 컬럼이 없어도 자동으로 카테고리를 예측합니다")
@@ -74,11 +73,9 @@ with st.sidebar:
 2025-01-03,월급,2500000,급여,1월 급여
     """)
 
-# 메인 영역
 if uploaded_file is None:
     st.info("👈 왼쪽 사이드바에서 CSV 파일을 업로드해주세요")
     
-    # 샘플 데이터 다운로드 버튼
     st.markdown("---")
     st.subheader("📥 샘플 데이터")
     
@@ -122,23 +119,19 @@ if uploaded_file is None:
 try:
     df = load_data(uploaded_file)
     
-    # AI 자동 분류 적용
     if use_ai:
         if '분류' not in df.columns or df['분류'].isna().any() or (df['분류'] == '기타').any():
             with st.spinner('🤖 AI가 카테고리를 분석 중입니다...'):
                 df = classifier.auto_categorize_dataframe(df)
                 
-                # 분류 컬럼이 없거나 '기타'인 경우 AI 결과를 사용
                 if '분류' not in df.columns:
                     df['분류'] = df['분류_AI']
                 else:
-                    # 비어있거나 '기타'인 분류만 AI로 채움
                     mask = df['분류'].isna() | (df['분류'] == '기타')
                     df.loc[mask, '분류'] = df.loc[mask, '분류_AI']
                 
             st.success(f"✅ {len(df)}건의 거래 내역을 불러왔습니다 (AI 자동 분류 적용)")
             
-            # AI 분류 통계 표시
             if '분류_AI' in df.columns:
                 ai_count = df['분류_AI'].notna().sum()
                 st.info(f"🤖 AI가 {ai_count}건의 카테고리를 자동으로 분류했습니다")
@@ -163,7 +156,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 
 # ========== 탭1: 대시보드 ==========
 with tab1:
-    # 요약 지표
     metrics = get_summary_metrics(df)
     
     col1, col2, col3 = st.columns(3)
@@ -176,7 +168,6 @@ with tab1:
     
     st.markdown("---")
     
-    # 차트 영역
     col_left, col_right = st.columns(2)
     
     with col_left:
@@ -219,6 +210,32 @@ with tab1:
             legend=dict(orientation="h", y=1.1)
         )
         st.plotly_chart(fig_bar, use_container_width=True)
+    
+    # 🆕 PDF 리포트 생성 버튼
+    st.markdown("---")
+    st.subheader("📄 월간 리포트 생성")
+    
+    col_pdf1, col_pdf2 = st.columns([1, 3])
+    
+    with col_pdf1:
+        if st.button("📄 PDF 리포트 생성", type="primary"):
+            with st.spinner("📝 리포트 생성 중... (10-20초 소요)"):
+                try:
+                    pdf_buffer = pdf_generator.generate_report(df, budget_manager)
+                    st.success("✅ 리포트 생성 완료!")
+                    
+                    st.download_button(
+                        label="📥 PDF 다운로드",
+                        data=pdf_buffer,
+                        file_name=f"expense_report_{pd.Timestamp.now().strftime('%Y%m%d')}.pdf",
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    st.error(f"❌ PDF 생성 실패: {str(e)}")
+                    st.info("💡 kaleido 라이브러리 설치가 필요할 수 있습니다: pip install kaleido")
+    
+    with col_pdf2:
+        st.info("💡 전문적인 월간 리포트를 PDF로 저장하세요 (차트, 예산 현황, 거래 내역 포함)")
 
 # ========== 탭2: 상세 분석 ==========
 with tab2:
@@ -297,7 +314,6 @@ with tab3:
 with tab4:
     st.subheader("💰 예산 관리")
     
-    # 예산 알림
     alerts = budget_manager.get_alerts(df)
     if alerts:
         st.markdown("### 🔔 알림")
@@ -310,7 +326,6 @@ with tab4:
                 st.info(alert['message'])
         st.markdown("---")
     
-    # 전체 요약
     summary = budget_manager.get_monthly_summary(df)
     
     col1, col2, col3, col4 = st.columns(4)
@@ -325,21 +340,17 @@ with tab4:
     
     st.markdown("---")
     
-    # 예산 설정 섹션
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
         st.markdown("### ⚙️ 예산 설정")
         
-        # 카테고리 선택
         categories = df['분류'].unique().tolist()
         selected_category = st.selectbox("카테고리 선택", categories)
         
-        # 현재 예산 표시
         current_budget = budget_manager.get_budget(selected_category)
         st.info(f"현재 예산: {current_budget:,.0f}원")
         
-        # 예산 입력
         new_budget = st.number_input(
             "새 예산 설정 (원)",
             min_value=0,
@@ -361,7 +372,6 @@ with tab4:
                 st.success(f"✅ {selected_category} 예산이 삭제되었습니다!")
                 st.rerun()
         
-        # 예산 추천
         st.markdown("---")
         st.markdown("### 💡 AI 예산 추천")
         st.caption("과거 지출 평균 + 20% 여유분")
@@ -385,7 +395,6 @@ with tab4:
         analysis = budget_manager.analyze_spending(df)
         
         if not analysis.empty:
-            # 데이터프레임 표시
             st.dataframe(
                 analysis.style.format({
                     '예산': '{:,.0f}원',
@@ -396,7 +405,6 @@ with tab4:
                 use_container_width=True
             )
             
-            # 진행률 바 차트
             st.markdown("### 📈 카테고리별 사용률")
             
             fig_budget = go.Figure()
@@ -465,7 +473,6 @@ with tab5:
     
     st.markdown(f"**{len(display_df)}건의 거래 내역**")
     
-    # AI 분류 결과가 있으면 표시
     display_cols = ['날짜', '적요', '금액', '분류', '구분']
     if '분류_AI' in display_df.columns:
         display_cols.append('분류_AI')
@@ -500,6 +507,8 @@ with tab6:
     1. 카테고리가 포함된 CSV 파일 업로드
     2. 아래 '모델 학습' 버튼 클릭
     3. 이후 카테고리 없는 데이터도 자동 분류 가능!
+    
+    ⚠️ **주의:** 정확한 학습을 위해 최소 100건 이상의 데이터를 권장합니다.
     """)
     
     st.markdown("---")
@@ -513,7 +522,6 @@ with tab6:
         else:
             st.success("✅ 모델 로드 완료")
             
-            # 평가하기
             if st.button("🎯 모델 정확도 평가"):
                 if '분류' in df.columns and len(df) > 0:
                     with st.spinner('평가 중...'):
@@ -529,6 +537,9 @@ with tab6:
         if '분류' in df.columns and '적요' in df.columns:
             st.info(f"현재 데이터: {len(df)}건")
             
+            if len(df) < 50:
+                st.warning("⚠️ 데이터가 너무 적습니다. 최소 50건 이상 권장합니다.")
+            
             if st.button("🚀 모델 학습 시작", type="primary"):
                 with st.spinner('학습 중... (수십 초 소요)'):
                     try:
@@ -542,7 +553,6 @@ with tab6:
     
     st.markdown("---")
     
-    # 테스트 예측
     st.markdown("### 🧪 실시간 예측 테스트")
     test_text = st.text_input(
         "적요 입력",
@@ -554,6 +564,5 @@ with tab6:
         predicted_category = classifier.predict(test_text)
         st.success(f"🎯 예측 카테고리: **{predicted_category}**")
 
-# 푸터
 st.markdown("---")
-st.caption("💡 Expense Analyzer v2.0 | Powered by Streamlit, Plotly & AI 🤖")
+st.caption("💡 Expense Analyzer v2.1 | Powered by Streamlit, Plotly & AI 🤖")
