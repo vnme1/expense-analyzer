@@ -58,8 +58,12 @@ class ComparisonAnalyzer:
                 '증감률(%)': change_pct
             })
         
+        # ✅ DataFrame 생성 후 비어있는지 확인
         category_changes_df = pd.DataFrame(category_changes)
-        category_changes_df = category_changes_df.sort_values('증감액', ascending=False)
+        
+        # ✅ 빈 DataFrame이 아닐 때만 정렬
+        if not category_changes_df.empty and '증감액' in category_changes_df.columns:
+            category_changes_df = category_changes_df.sort_values('증감액', ascending=False)
         
         return {
             'summary': {

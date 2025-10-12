@@ -8,7 +8,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
+
 from utils.preprocess import (
     load_data, 
     summarize_by_category, 
@@ -2108,7 +2109,7 @@ with tab12:
         
         comparison = comparison_analyzer.compare_this_month_vs_last_month(df)
         
-        if comparison:
+        if comparison and comparison.get('summary'):
             summary = comparison['summary']
             
             # 요약 지표
