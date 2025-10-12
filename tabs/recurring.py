@@ -5,35 +5,22 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-from utils.recurring_transactions import RecurringTransactionManager
-from utils.category_manager import CategoryManager
 
 
-# 싱글톤
-@st.cache_resource
-def get_recurring_manager():
-    return RecurringTransactionManager()
-
-@st.cache_resource
-def get_category_manager():
-    return CategoryManager()
-
-
-def render(df):
+def render(df, recurring_manager, category_manager):
     """
     반복 거래 탭 렌더링
     
     Args:
         df: 거래내역 DataFrame
+        recurring_manager: RecurringTransactionManager 인스턴스
+        category_manager: CategoryManager 인스턴스
     """
     st.subheader("🔄 반복 거래 관리")
     
     st.markdown("""
     구독료, 월세, 통신비 등 주기적으로 발생하는 거래를 자동으로 관리하세요.
     """)
-    
-    recurring_manager = get_recurring_manager()
-    category_manager = get_category_manager()
     
     st.markdown("---")
     
@@ -48,7 +35,7 @@ def render(df):
     if not active_recurring:
         st.info("📝 등록된 반복 거래가 없습니다. 위에서 추가해보세요!")
     else:
-        _render_recurring_list(active_recurring)
+        _render_recurring_list(active_recurring, recurring_manager)
         
         st.markdown("---")
         
@@ -77,7 +64,7 @@ def _render_add_recurring(recurring_manager, category_manager):
                 rec_amount = st.number_input(
                     "금액 (지출은 음수)",
                     value=-14500,
-                    step=1000,
+                    step=1000
                     help="지출: 음수, 수입: 양수"
                 )
                 rec_category = st.selectbox(
@@ -107,9 +94,9 @@ def _render_add_recurring(recurring_manager, category_manager):
             
             rec_memo = st.text_input("메모 (선택)", placeholder="월 구독료")
             
-            submitted = st.form_submit_button("💾 반복 거래 추가", use_container_width=True)
+            submitted_rec = st.form_submit_button("💾 반복 거래 추가", use_container_width=True)
             
-            if submitted:
+            if submitted_rec:
                 result = recurring_manager.add_recurring(
                     name=rec_name,
                     amount=rec_amount,
@@ -127,7 +114,7 @@ def _render_add_recurring(recurring_manager, category_manager):
                     st.error(result['message'])
 
 
-def _render_recurring_list(active_recurring):
+def _render_recurring_list(active_recurring, recurring_manager):
     """반복 거래 목록"""
     st.markdown("### 📋 등록된 반복 거래")
     
@@ -138,7 +125,7 @@ def _render_recurring_list(active_recurring):
             '거래명': rec['name'],
             '금액': f"{rec['amount']:,.0f}원",
             '카테고리': rec['category'],
-            '주기': RecurringTransactionManager.FREQUENCY_TYPES[rec['frequency']],
+            '주기': recurring_manager.FREQUENCY_TYPES[rec['frequency']],
             '시작일': rec['start_date'],
             '상태': '🟢 활성' if rec.get('active', True) else '⚪ 비활성'
         })

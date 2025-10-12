@@ -4,29 +4,21 @@
 """
 import streamlit as st
 import pandas as pd
-from utils.category_manager import CategoryManager
 
 
-# 싱글톤
-@st.cache_resource
-def get_category_manager():
-    return CategoryManager()
-
-
-def render(df):
+def render(df, category_manager):
     """
     카테고리 관리 탭 렌더링
     
     Args:
         df: 거래내역 DataFrame
+        category_manager: CategoryManager 인스턴스
     """
     st.subheader("📁 카테고리 관리")
     
     st.markdown("""
     카테고리를 추가, 수정, 삭제하거나 여러 카테고리를 하나로 병합할 수 있습니다.
     """)
-    
-    category_manager = get_category_manager()
     
     st.markdown("---")
     

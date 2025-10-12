@@ -4,21 +4,15 @@
 """
 import streamlit as st
 from datetime import datetime, timedelta
-from utils.savings_goal import SavingsGoalManager
 
 
-# 싱글톤
-@st.cache_resource
-def get_savings_manager():
-    return SavingsGoalManager()
-
-
-def render(df):
+def render(df, savings_goal_manager):
     """
     저축 목표 탭 렌더링
     
     Args:
         df: 거래내역 DataFrame
+        savings_goal_manager: SavingsGoalManager 인스턴스
     """
     st.subheader("🎯 저축 목표 관리")
     
@@ -26,25 +20,23 @@ def render(df):
     장기적인 재무 목표를 설정하고 진행 상황을 추적하세요.
     """)
     
-    savings_manager = get_savings_manager()
-    
     st.markdown("---")
     
     # 목표 추가
-    _render_add_goal(savings_manager)
+    _render_add_goal(savings_goal_manager)
     
     st.markdown("---")
     
     # 활성 목표 목록
-    active_goals = savings_manager.get_active_goals()
+    active_goals = savings_goal_manager.get_active_goals()
     
     if not active_goals:
         st.info("📝 아직 설정된 목표가 없습니다. 위에서 새 목표를 추가해보세요!")
     else:
-        _render_goal_list(df, savings_manager)
+        _render_goal_list(df, savings_goal_manager)
 
 
-def _render_add_goal(savings_manager):
+def _render_add_goal(savings_goal_manager):
     """목표 추가"""
     with st.expander("➕ 새 목표 추가", expanded=False):
         with st.form("add_goal_form"):
@@ -65,7 +57,7 @@ def _render_add_goal(savings_manager):
             submitted = st.form_submit_button("💾 목표 추가", use_container_width=True)
             
             if submitted:
-                result = savings_manager.add_goal(
+                result = savings_goal_manager.add_goal(
                     name=goal_name,
                     target_amount=goal_amount,
                     target_date=goal_date,
@@ -80,11 +72,11 @@ def _render_add_goal(savings_manager):
                     st.error(result['message'])
 
 
-def _render_goal_list(df, savings_manager):
+def _render_goal_list(df, savings_goal_manager):
     """목표 목록"""
     st.markdown("### 📋 현재 목표")
     
-    for goal_data in savings_manager.get_all_progress(df):
+    for goal_data in savings_goal_manager.get_all_progress(df):
         goal = goal_data['goal']
         progress = goal_data['progress']
         
@@ -130,7 +122,7 @@ def _render_goal_list(df, savings_manager):
                 st.info("💡 더 많은 데이터가 쌓이면 달성 예측이 표시됩니다")
             
             # 월별 권장 저축액
-            monthly_need = savings_manager.suggest_monthly_savings(goal, progress['current_savings'])
+            monthly_need = savings_goal_manager.suggest_monthly_savings(goal, progress['current_savings'])
             st.info(f"📅 **월별 권장 저축액**: {monthly_need:,.0f}원")
             
             # 관리 버튼
@@ -139,13 +131,13 @@ def _render_goal_list(df, savings_manager):
             with col_btn1:
                 if progress['progress_rate'] >= 100:
                     if st.button("🎉 완료", key=f"complete_{goal['id']}", use_container_width=True):
-                        savings_manager.mark_as_completed(goal['id'])
+                        savings_goal_manager.mark_as_completed(goal['id'])
                         st.success("목표를 달성했습니다! 🎉")
                         st.rerun()
             
             with col_btn2:
                 if st.button("🗑️ 삭제", key=f"delete_goal_{goal['id']}", use_container_width=True):
-                    savings_manager.delete_goal(goal['id'])
+                    savings_goal_manager.delete_goal(goal['id'])
                     st.success("목표가 삭제되었습니다")
                     st.rerun()
             

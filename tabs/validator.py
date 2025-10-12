@@ -4,21 +4,15 @@
 """
 import streamlit as st
 import pandas as pd
-from utils.data_validator import DataValidator
 
 
-# 싱글톤
-@st.cache_resource
-def get_validator():
-    return DataValidator()
-
-
-def render(df):
+def render(df, data_validator):
     """
     데이터 검증 탭 렌더링
     
     Args:
         df: 거래내역 DataFrame
+        data_validator: DataValidator 인스턴스
     """
     st.subheader("✅ 데이터 검증 및 품질 체크")
     
@@ -28,13 +22,11 @@ def render(df):
     
     st.markdown("---")
     
-    validator = get_validator()
-    
     # 검증 실행
     if st.button("🔍 데이터 검증 시작", type="primary", use_container_width=True):
         with st.spinner("검증 중..."):
-            validation_results = validator.validate(df)
-            summary = validator.get_summary()
+            validation_results = data_validator.validate(df)
+            summary = data_validator.get_summary()
             
             # 요약 표시
             if summary['status'] == 'excellent':

@@ -14,13 +14,6 @@ from utils.preprocess import (
     summarize_by_month,
     filter_by_date_range
 )
-from utils.pdf_generator import PDFReportGenerator
-
-
-# 싱글톤
-@st.cache_resource
-def get_pdf_generator():
-    return PDFReportGenerator()
 
 
 def render(df, budget_manager):
@@ -206,6 +199,8 @@ def _render_monthly_chart(df):
 
 def _render_pdf_report(df, budget_manager):
     """PDF 리포트 생성"""
+    from utils.pdf_generator import PDFReportGenerator
+    
     st.subheader("📄 월간 리포트 생성")
     
     col_date1, col_date2 = st.columns(2)
@@ -238,7 +233,7 @@ def _render_pdf_report(df, budget_manager):
         if st.button("📄 PDF 리포트 생성", type="primary", use_container_width=True):
             with st.spinner("📝 리포트 생성 중... (10-20초 소요)"):
                 try:
-                    pdf_generator = get_pdf_generator()
+                    pdf_generator = PDFReportGenerator()
                     pdf_buffer = pdf_generator.generate_report(filtered_df, budget_manager)
                     
                     st.success("✅ 리포트 생성 완료!")
