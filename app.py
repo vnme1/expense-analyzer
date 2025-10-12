@@ -1,13 +1,14 @@
 """
 Expense Analyzer - 개인 가계부 분석 대시보드
 Streamlit 기반 인터랙티브 재무 분석 도구
-v2.4 - Excel 지원 + 통계 + 카테고리 관리 + 데이터 검증 + 고급 예산 관리
+v2.5 - 빠른 입력 + 요약 카드 + 즐겨찾기 필터 + 편집 모드
 """
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import base64
+from datetime import datetime
 from utils.preprocess import (
     load_data, 
     summarize_by_category, 
@@ -30,7 +31,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 🆕 세션 상태 초기화 (반드시 필요!)
+# 세션 상태 초기화
 if 'show_budget_settings' not in st.session_state:
     st.session_state['show_budget_settings'] = False
 
@@ -40,12 +41,8 @@ if 'use_sample' not in st.session_state:
 if 'suggested_budgets' not in st.session_state:
     st.session_state['suggested_budgets'] = None
 
-@st.cache_resource
-def get_classifier():
-    """AI 분류기 싱글톤"""
-    classifier = CategoryClassifier()
-    classifier.load_model()
-    return classifier
+if 'quick_filter' not in st.session_state:
+    st.session_state['quick_filter'] = None
 
 @st.cache_resource
 def get_classifier():
@@ -124,6 +121,96 @@ with st.sidebar:
 - 첫 번째 시트의 데이터를 읽음
 - 컬럼명은 CSV와 동일
         """)
+    
+    # 🆕 빠른 거래 입력
+    st.markdown("---")
+    st.markdown("### ⚡ 빠른 거래 입력")
+    
+    with st.expander("➕ 새 거래 추가", expanded=False):
+        with st.form("quick_add_transaction", clear_on_submit=True):
+            add_date = st.date_input(
+                "날짜",
+                value=datetime.now(),
+                help="거래 날짜를 선택하세요"
+            )
+            
+            add_desc = st.text_input(
+                "적요",
+                placeholder="예: 스타벅스",
+                help="거래 내역 설명"
+            )
+            
+            col_amount, col_type = st.columns([2, 1])
+            
+            with col_amount:
+                add_amount = st.number_input(
+                    "금액",
+                    min_value=0,
+                    step=1000,
+                    help="거래 금액 (양수로 입력)"
+                )
+            
+            with col_type:
+                add_type = st.selectbox(
+                    "구분",
+                    options=["지출", "수입"]
+                )
+            
+            # AI 자동 분류 사용 시
+            if use_ai and add_desc:
+                predicted_cat = classifier.predict(add_desc)
+                add_category = st.text_input("카테고리", value=predicted_cat)
+            else:
+                categories = category_manager.get_all_categories()
+                add_category = st.selectbox("카테고리", options=categories)
+            
+            add_memo = st.text_input(
+                "메모 (선택)",
+                placeholder="추가 메모",
+                help="선택사항"
+            )
+            
+            submitted = st.form_submit_button("💾 거래 추가", use_container_width=True)
+            
+            if submitted:
+                if not add_desc or add_amount == 0:
+                    st.error("❌ 적요와 금액을 입력해주세요")
+                else:
+                    try:
+                        import os
+                        
+                        # CSV 파일 경로
+                        csv_path = 'data/user_expenses.csv'
+                        
+                        # 금액 부호 조정
+                        final_amount = -add_amount if add_type == "지출" else add_amount
+                        
+                        # 새 행 생성
+                        new_row = pd.DataFrame({
+                            '날짜': [add_date],
+                            '적요': [add_desc],
+                            '금액': [final_amount],
+                            '분류': [add_category],
+                            '메모': [add_memo]
+                        })
+                        
+                        # 기존 데이터에 추가
+                        if os.path.exists(csv_path):
+                            existing_df = pd.read_csv(csv_path, encoding='utf-8-sig')
+                            updated_df = pd.concat([existing_df, new_row], ignore_index=True)
+                        else:
+                            # 폴더 생성
+                            os.makedirs('data', exist_ok=True)
+                            updated_df = new_row
+                        
+                        # 저장
+                        updated_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+                        
+                        st.success(f"✅ 거래가 추가되었습니다!")
+                        st.info("💡 페이지를 새로고침하여 변경사항을 확인하세요")
+                        
+                    except Exception as e:
+                        st.error(f"❌ 저장 실패: {str(e)}")
 
 if uploaded_file is None:
     st.info("👈 왼쪽 사이드바에서 CSV 또는 Excel 파일을 업로드해주세요")
@@ -218,7 +305,7 @@ except Exception as e:
     st.error(f"❌ 파일 로드 오류: {str(e)}")
     st.stop()
 
-# 탭 구성 (9개 탭)
+# 탭 구성
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "📊 대시보드", 
     "📈 상세 분석", 
@@ -233,6 +320,89 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
 
 # 탭1: 대시보드
 with tab1:
+    # 🆕 이번 달 요약 카드
+    st.markdown("### 📊 이번 달 요약")
+    
+    # 이번 달 데이터 필터링
+    current_month = pd.Timestamp.now().strftime('%Y-%m')
+    this_month_df = df[df['년월'] == current_month]
+    
+    # 지난 달 데이터
+    last_month = (pd.Timestamp.now() - pd.DateOffset(months=1)).strftime('%Y-%m')
+    last_month_df = df[df['년월'] == last_month]
+    
+    # 계산
+    this_month_expense = this_month_df[this_month_df['구분'] == '지출']['금액_절대값'].sum()
+    last_month_expense = last_month_df[last_month_df['구분'] == '지출']['금액_절대값'].sum()
+    expense_change = this_month_expense - last_month_expense
+    
+    this_month_income = this_month_df[this_month_df['구분'] == '수입']['금액_절대값'].sum()
+    
+    # 가장 많이 쓴 카테고리
+    if len(this_month_df[this_month_df['구분'] == '지출']) > 0:
+        top_category = this_month_df[this_month_df['구분'] == '지출'].groupby('분류')['금액_절대값'].sum().idxmax()
+        top_category_amount = this_month_df[this_month_df['구분'] == '지출'].groupby('분류')['금액_절대값'].sum().max()
+    else:
+        top_category = "-"
+        top_category_amount = 0
+    
+    # 예산 달성률
+    if budget_manager.budgets['default'] or (current_month in budget_manager.budgets.get('monthly', {})):
+        budget_summary = budget_manager.get_monthly_summary(this_month_df, current_month)
+        budget_usage = budget_summary['전체_사용률']
+    else:
+        budget_usage = 0
+    
+    # 카드 표시
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric(
+            "💸 이번 달 지출", 
+            f"{this_month_expense:,.0f}원",
+            delta=f"{expense_change:,.0f}원" if last_month_expense > 0 else None,
+            delta_color="inverse"
+        )
+    
+    with col2:
+        st.metric(
+            "💵 이번 달 수입",
+            f"{this_month_income:,.0f}원"
+        )
+    
+    with col3:
+        st.metric(
+            "🏆 최다 지출",
+            top_category,
+            f"{top_category_amount:,.0f}원"
+        )
+    
+    with col4:
+        savings_rate = ((this_month_income - this_month_expense) / this_month_income * 100) if this_month_income > 0 else 0
+        st.metric(
+            "💰 저축률",
+            f"{savings_rate:.1f}%",
+            delta="✨ 달성!" if savings_rate >= 30 else "목표: 30%",
+            delta_color="normal" if savings_rate >= 30 else "off"
+        )
+    
+    with col5:
+        if budget_usage > 0:
+            st.metric(
+                "📊 예산 사용",
+                f"{budget_usage:.0f}%",
+                delta="위험" if budget_usage >= 80 else "양호",
+                delta_color="inverse" if budget_usage >= 80 else "normal"
+            )
+        else:
+            st.metric(
+                "📊 예산 사용",
+                "미설정",
+                "예산을 설정하세요"
+            )
+    
+    st.markdown("---")
+    
     metrics = get_summary_metrics(df)
     
     col1, col2, col3 = st.columns(3)
@@ -438,19 +608,16 @@ with tab3:
         use_container_width=True
     )
 
-# 탭4: 예산 관리
-# 탭4: 예산 관리 (고급 기능)
+# 탭4: 예산 관리 (기존 코드 유지)
 with tab4:
     st.subheader("💰 예산 관리")
     
-    # 🆕 자동 갱신 체크
     available_months = budget_manager.get_available_months(df)
     if available_months:
-        current_month = available_months[-1]  # 최신 월
+        current_month = available_months[-1]
         if budget_manager.check_and_reset_if_needed(current_month):
             st.success(f"✅ {current_month} 예산이 자동으로 생성되었습니다!")
     
-    # 🆕 전체/월별 선택
     col_mode, col_month, col_settings = st.columns([1, 2, 1])
     
     with col_mode:
@@ -468,7 +635,7 @@ with tab4:
                 target_month = st.selectbox(
                     "분석할 월 선택",
                     options=available_months,
-                    index=len(available_months) - 1  # 최신 월 기본 선택
+                    index=len(available_months) - 1
                 )
                 st.info(f"💡 {target_month} 기준으로 예산을 분석합니다")
             else:
@@ -480,7 +647,6 @@ with tab4:
         if st.button("⚙️ 설정", use_container_width=True):
             st.session_state['show_budget_settings'] = not st.session_state.get('show_budget_settings', False)
     
-    # 🆕 설정 패널
     if st.session_state.get('show_budget_settings', False):
         with st.expander("⚙️ 예산 설정", expanded=True):
             st.markdown("### 🔄 자동 갱신")
@@ -540,7 +706,6 @@ with tab4:
     
     st.markdown("---")
     
-    # 알림 (선택된 모드 기준)
     alerts = budget_manager.get_alerts(df, target_month)
     if alerts:
         st.markdown("### 🔔 알림")
@@ -553,7 +718,6 @@ with tab4:
                 st.info(alert['message'])
         st.markdown("---")
     
-    # 요약 (선택된 모드 기준)
     summary = budget_manager.get_monthly_summary(df, target_month)
     
     col1, col2, col3, col4 = st.columns(4)
@@ -573,7 +737,6 @@ with tab4:
     with col_left:
         st.markdown("### ⚙️ 예산 설정")
         
-        # 🆕 월별 예산 여부 표시
         if target_month and target_month in budget_manager.budgets['monthly']:
             st.info(f"📆 **{target_month} 전용 예산**을 설정합니다")
         else:
@@ -610,7 +773,6 @@ with tab4:
         st.markdown("### 💡 AI 예산 추천")
         st.caption("과거 지출 평균 + 20% 여유분")
         
-        # 🆕 세션 상태에 추천 예산 저장
         if 'suggested_budgets' not in st.session_state:
             st.session_state['suggested_budgets'] = None
         
@@ -618,16 +780,14 @@ with tab4:
             suggested = budget_manager.suggest_budget(df)
             st.session_state['suggested_budgets'] = suggested
         
-        # 추천 예산이 있으면 표시
         if st.session_state['suggested_budgets']:
             st.markdown("**추천 예산:**")
             
             for cat, amount in st.session_state['suggested_budgets'].items():
                 st.write(f"- **{cat}**: {amount:,.0f}원")
             
-            st.markdown("")  # 여백
+            st.markdown("")
             
-            # 🆕 일괄 적용 버튼 (분리됨!)
             col_apply1, col_apply2 = st.columns([1, 1])
             
             with col_apply1:
@@ -636,7 +796,7 @@ with tab4:
                         budget_manager.set_budget(cat, amount, target_month)
                     
                     st.success("✅ 추천 예산이 일괄 적용되었습니다!")
-                    st.session_state['suggested_budgets'] = None  # 초기화
+                    st.session_state['suggested_budgets'] = None
                     st.rerun()
             
             with col_apply2:
@@ -691,7 +851,6 @@ with tab4:
         else:
             st.info("예산이 설정된 카테고리가 없습니다. 왼쪽에서 예산을 설정해주세요.")
     
-    # 🆕 월별 비교 그래프
     if len(available_months) > 1:
         st.markdown("---")
         st.markdown("### 📊 월별 예산 사용률 추이")
@@ -728,7 +887,6 @@ with tab4:
             
             st.plotly_chart(fig_comparison, use_container_width=True)
             
-            # 사용률 라인 차트
             fig_usage = go.Figure()
             
             fig_usage.add_trace(go.Scatter(
@@ -742,7 +900,6 @@ with tab4:
                 fillcolor='rgba(245, 158, 11, 0.1)'
             ))
             
-            # 위험 구간 표시
             fig_usage.add_hline(y=80, line_dash="dash", line_color="red", 
                                annotation_text="위험 (80%)")
             fig_usage.add_hline(y=60, line_dash="dash", line_color="orange", 
@@ -757,7 +914,6 @@ with tab4:
             
             st.plotly_chart(fig_usage, use_container_width=True)
             
-            # 테이블
             st.markdown("### 📋 월별 상세 내역")
             st.dataframe(
                 comparison_df.style.format({
@@ -775,7 +931,6 @@ with tab5:
     
     stats = get_statistics(df)
     
-    # 1. 핵심 지표 카드
     st.markdown("### 💡 핵심 지표")
     col1, col2, col3, col4 = st.columns(4)
     
@@ -809,7 +964,6 @@ with tab5:
     
     st.markdown("---")
     
-    # 2. 상세 통계 테이블
     col_left, col_right = st.columns(2)
     
     with col_left:
@@ -872,7 +1026,6 @@ with tab5:
     
     st.markdown("---")
     
-    # 3. 지출 분포 히스토그램
     st.markdown("### 📊 지출 금액 분포")
     
     expense_df = df[df['구분'] == '지출']
@@ -899,7 +1052,6 @@ with tab5:
     
     st.markdown("---")
     
-    # 4. 요일별 지출 분석
     st.markdown("### 📅 요일별 지출 패턴")
     
     expense_df_copy = expense_df.copy()
@@ -925,7 +1077,6 @@ with tab5:
     fig_weekday.update_layout(showlegend=False)
     st.plotly_chart(fig_weekday, use_container_width=True)
     
-    # 요일별 평균
     weekday_avg = expense_df_copy.groupby('요일')['금액_절대값'].mean().reindex(weekday_order, fill_value=0)
     weekday_avg.index = [weekday_map[day] for day in weekday_avg.index]
     
@@ -939,7 +1090,6 @@ with tab5:
         min_day = weekday_avg.idxmin()
         st.success(f"📉 **가장 적게 쓰는 요일**: {min_day} ({weekday_avg.min():,.0f}원/건)")
     
-    # 통계 내보내기
     st.markdown("---")
     st.markdown("### 📥 통계 데이터 내보내기")
     
@@ -967,13 +1117,71 @@ with tab5:
 with tab6:
     st.subheader("🔍 원본 데이터 탐색")
     
+    # 🆕 즐겨찾기 필터
+    st.markdown("### ⭐ 빠른 필터")
+    
+    col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
+    
+    with col_f1:
+        if st.button("📅 이번 달", use_container_width=True):
+            st.session_state['quick_filter'] = {
+                'type': 'month',
+                'value': pd.Timestamp.now().strftime('%Y-%m')
+            }
+    
+    with col_f2:
+        if st.button("☕ 카페 지출", use_container_width=True):
+            st.session_state['quick_filter'] = {
+                'type': 'category',
+                'value': '카페'
+            }
+    
+    with col_f3:
+        if st.button("🍔 식비 전체", use_container_width=True):
+            st.session_state['quick_filter'] = {
+                'type': 'category',
+                'value': '식비'
+            }
+    
+    with col_f4:
+        if st.button("💳 고액 거래", use_container_width=True):
+            st.session_state['quick_filter'] = {
+                'type': 'amount',
+                'value': 100000
+            }
+    
+    with col_f5:
+        if st.button("🔄 초기화", use_container_width=True):
+            st.session_state['quick_filter'] = None
+    
+    # 빠른 필터 적용
+    if 'quick_filter' in st.session_state and st.session_state['quick_filter']:
+        filter_info = st.session_state['quick_filter']
+        
+        if filter_info['type'] == 'month':
+            filtered_df_quick = df[df['년월'] == filter_info['value']]
+            st.info(f"📅 필터 적용: {filter_info['value']} ({len(filtered_df_quick)}건)")
+        elif filter_info['type'] == 'category':
+            filtered_df_quick = df[df['분류'] == filter_info['value']]
+            st.info(f"📂 필터 적용: {filter_info['value']} ({len(filtered_df_quick)}건)")
+        elif filter_info['type'] == 'amount':
+            filtered_df_quick = df[df['금액_절대값'] >= filter_info['value']]
+            st.info(f"💰 필터 적용: {filter_info['value']:,}원 이상 ({len(filtered_df_quick)}건)")
+    else:
+        filtered_df_quick = df
+    
+    st.markdown("---")
+    
+    st.markdown("### 🔧 상세 필터")
+    
     col_f1, col_f2 = st.columns(2)
     
     with col_f1:
+        available_categories = filtered_df_quick['분류'].unique()
         filter_category = st.multiselect(
             "카테고리 필터",
-            options=df['분류'].unique(),
-            default=df['분류'].unique()
+            options=available_categories,
+            default=available_categories
         )
     
     with col_f2:
@@ -983,9 +1191,9 @@ with tab6:
             default=['수입', '지출']
         )
     
-    filtered_df = df[
-        (df['분류'].isin(filter_category)) & 
-        (df['구분'].isin(filter_type))
+    filtered_df = filtered_df_quick[
+        (filtered_df_quick['분류'].isin(filter_category)) & 
+        (filtered_df_quick['구분'].isin(filter_type))
     ]
     
     sort_column = st.selectbox(
@@ -1000,16 +1208,68 @@ with tab6:
     
     st.markdown(f"**{len(display_df)}건의 거래 내역**")
     
+    # 🆕 편집 모드 토글
+    col_edit1, col_edit2 = st.columns([1, 4])
+    
+    with col_edit1:
+        edit_mode = st.checkbox("✏️ 편집 모드", help="메모를 직접 수정할 수 있습니다")
+    
+    with col_edit2:
+        if edit_mode:
+            st.info("💡 메모 칸을 더블클릭하여 수정한 후 엔터를 누르세요")
+    
     display_cols = ['날짜', '적요', '금액', '분류', '구분']
     if '분류_AI' in display_df.columns:
         display_cols.append('분류_AI')
     if '메모' in display_df.columns:
         display_cols.append('메모')
     
-    st.dataframe(
-        display_df[display_cols].style.format({'금액': '{:,.0f}원'}),
-        use_container_width=True
-    )
+    if edit_mode and '메모' in display_df.columns:
+        edited_df = st.data_editor(
+            display_df[display_cols],
+            use_container_width=True,
+            num_rows="fixed",
+            disabled=(['날짜', '적요', '금액', '분류', '구분', '분류_AI'] if '분류_AI' in display_cols else ['날짜', '적요', '금액', '분류', '구분']),
+            column_config={
+                "날짜": st.column_config.DateColumn(
+                    "날짜",
+                    format="YYYY-MM-DD",
+                ),
+                "금액": st.column_config.NumberColumn(
+                    "금액",
+                    format="%d원",
+                ),
+                "메모": st.column_config.TextColumn(
+                    "메모",
+                    help="더블클릭하여 수정",
+                    max_chars=100,
+                )
+            },
+            key="editable_table"
+        )
+        
+        col_save1, col_save2 = st.columns([1, 4])
+        
+        with col_save1:
+            if st.button("💾 변경사항 저장", type="primary", use_container_width=True):
+                try:
+                    import os
+                    csv_path = 'data/user_expenses.csv'
+                    os.makedirs('data', exist_ok=True)
+                    edited_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+                    st.success("✅ 저장되었습니다!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ 저장 실패: {str(e)}")
+        
+        with col_save2:
+            st.caption("⚠️ 저장하지 않으면 변경사항이 사라집니다")
+    
+    else:
+        st.dataframe(
+            display_df[display_cols].style.format({'금액': '{:,.0f}원'}),
+            use_container_width=True
+        )
     
     csv = display_df.to_csv(index=False, encoding='utf-8-sig')
     st.download_button(
