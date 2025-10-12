@@ -38,7 +38,17 @@ __all__ = [
     # 🆕 패키지 C 추가
     'CategoryManager',
     'DataValidator',
-    'ExportManager'
+    'ExportManager',
+
+    # 🆕 Phase 1: 편의성 기능
+    'ThemeManager',
+    'SavingsGoalManager',
+    'RecurringTransactionManager',
+
+    # 🆕 Phase 2: 스마트 기능
+    'TagManager',
+    'ComparisonAnalyzer',
+    'ExpensePredictor',
 ]
 
-__version__ = '2.3.0'  # 🆕 버전 업데이트 (2.1.0 → 2.3.0)
+__version__ = '2.5.0'  # 🆕 버전 업데이트 (2.1.0 → 2.3.0)

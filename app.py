@@ -23,7 +23,13 @@ from utils.pdf_generator import PDFReportGenerator
 from utils.category_manager import CategoryManager
 from utils.data_validator import DataValidator
 from utils.export_manager import ExportManager
-
+#  Phase 1&2 모듈
+from utils.theme_manager import ThemeManager
+from utils.savings_goal import SavingsGoalManager
+from utils.recurring_transactions import RecurringTransactionManager
+from utils.tag_manager import TagManager
+from utils.comparison_analyzer import ComparisonAnalyzer
+from utils.expense_predictor import ExpensePredictor
 
 st.set_page_config(
     page_title="Expense Analyzer",
@@ -76,18 +82,65 @@ def get_export_manager():
     """내보내기 관리자 싱글톤"""
     return ExportManager()
 
+@st.cache_resource
+def get_theme_manager():
+    return ThemeManager()
+
+@st.cache_resource
+def get_savings_goal_manager():
+    return SavingsGoalManager()
+
+@st.cache_resource
+def get_recurring_manager():
+    return RecurringTransactionManager()
+
+@st.cache_resource
+def get_tag_manager():
+    return TagManager()
+
+@st.cache_resource
+def get_comparison_analyzer():
+    return ComparisonAnalyzer()
+
+@st.cache_resource
+def get_expense_predictor():
+    return ExpensePredictor()
+
 classifier = get_classifier()
 budget_manager = get_budget_manager()
 pdf_generator = get_pdf_generator()
 category_manager = get_category_manager()
 data_validator = get_data_validator()
 export_manager = get_export_manager()
+theme_manager = get_theme_manager()
+savings_goal_manager = get_savings_goal_manager()
+recurring_manager = get_recurring_manager()
+tag_manager = get_tag_manager()
+comparison_analyzer = get_comparison_analyzer()
+expense_predictor = get_expense_predictor()
+
+# 🎨 테마 적용
+theme_manager.apply_theme()
 
 st.title("💰 개인 가계부 분석기")
 st.markdown("**CSV/Excel 파일을 업로드하여 수입/지출을 분석하세요 + AI 자동 분류 🤖**")
 
 # 사이드바
 with st.sidebar:
+    # 🌓 다크 모드 토글
+    st.markdown("### 🎨 테마")
+    current_theme = theme_manager.get_theme_name()
+    
+    col_theme1, col_theme2 = st.columns([3, 1])
+    with col_theme1:
+        st.caption(f"현재: {'🌙 다크 모드' if current_theme == 'dark' else '☀️ 라이트 모드'}")
+    with col_theme2:
+        if st.button("🔄", help="테마 변경", use_container_width=True):
+            new_theme = theme_manager.toggle_theme()
+            st.rerun()
+    
+    st.markdown("---")
+    
     st.header("📂 파일 업로드")
     uploaded_file = st.file_uploader(
         "CSV 또는 Excel 파일 선택",
@@ -122,7 +175,7 @@ with st.sidebar:
 - 컬럼명은 CSV와 동일
         """)
     
-    # 🆕 빠른 거래 입력
+    #  빠른 거래 입력
     st.markdown("---")
     st.markdown("### ⚡ 빠른 거래 입력")
     
@@ -306,7 +359,7 @@ except Exception as e:
     st.stop()
 
 # 탭 구성
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
     "📊 대시보드", 
     "📈 상세 분석", 
     "📅 월별 추이", 
@@ -315,12 +368,15 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "🔍 데이터 탐색",
     "📁 카테고리 관리",
     "✅ 데이터 검증",
-    "🤖 AI 학습"
+    "🤖 AI 학습",
+    "🎯 저축 목표",      # 
+    "🔄 반복 거래",       # 
+    "🔮 예측 & 비교"     # 
 ])
 
 # 탭1: 대시보드
 with tab1:
-    # 🆕 이번 달 요약 카드
+    #  이번 달 요약 카드
     st.markdown("### 📊 이번 달 요약")
     
     # 이번 달 데이터 필터링
@@ -1117,7 +1173,7 @@ with tab5:
 with tab6:
     st.subheader("🔍 원본 데이터 탐색")
     
-    # 🆕 즐겨찾기 필터
+    #  즐겨찾기 필터
     st.markdown("### ⭐ 빠른 필터")
     
     col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
@@ -1208,7 +1264,7 @@ with tab6:
     
     st.markdown(f"**{len(display_df)}건의 거래 내역**")
     
-    # 🆕 편집 모드 토글
+    #  편집 모드 토글
     col_edit1, col_edit2 = st.columns([1, 4])
     
     with col_edit1:
@@ -1571,5 +1627,814 @@ with tab9:
         predicted_category = classifier.predict(test_text)
         st.success(f"🎯 예측 카테고리: **{predicted_category}**")
 
+# 🆕 탭10: 저축 목표
+with tab10:
+    st.subheader("🎯 저축 목표 관리")
+    
+    st.markdown("""
+    장기적인 재무 목표를 설정하고 진행 상황을 추적하세요.
+    - 여행 자금, 비상금, 자동차 구매 등 다양한 목표 설정 가능
+    - 실시간 진행률 및 달성 가능성 분석
+    - 일일/월별 저축 권장액 자동 계산
+    """)
+    
+    st.markdown("---")
+    
+    # 목표 추가
+    with st.expander("➕ 새 목표 추가", expanded=False):
+        with st.form("add_goal_form"):
+            col_g1, col_g2 = st.columns(2)
+            
+            with col_g1:
+                goal_name = st.text_input("목표 이름", placeholder="예: 여행 자금")
+                goal_amount = st.number_input("목표 금액 (원)", min_value=0, step=100000, value=3000000)
+            
+            with col_g2:
+                goal_date = st.date_input(
+                    "목표 날짜",
+                    value=datetime.now() + timedelta(days=365),
+                    min_value=datetime.now()
+                )
+                goal_desc = st.text_area("설명 (선택)", placeholder="목표에 대한 간단한 설명")
+            
+            submitted = st.form_submit_button("💾 목표 추가", use_container_width=True)
+            
+            if submitted:
+                result = savings_goal_manager.add_goal(
+                    name=goal_name,
+                    target_amount=goal_amount,
+                    target_date=goal_date,
+                    description=goal_desc
+                )
+                
+                if result['success']:
+                    st.success(result['message'])
+                    st.balloons()
+                    st.rerun()
+                else:
+                    st.error(result['message'])
+    
+    st.markdown("---")
+    
+    # 활성 목표 목록
+    active_goals = savings_goal_manager.get_active_goals()
+    
+    if not active_goals:
+        st.info("📝 아직 설정된 목표가 없습니다. 위에서 새 목표를 추가해보세요!")
+    else:
+        st.markdown("### 📋 현재 목표")
+        
+        for goal_data in savings_goal_manager.get_all_progress(df):
+            goal = goal_data['goal']
+            progress = goal_data['progress']
+            
+            with st.container():
+                st.markdown(f"#### {goal['name']}")
+                
+                if goal.get('description'):
+                    st.caption(goal['description'])
+                
+                # 진행률 표시
+                col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+                
+                with col_p1:
+                    st.metric(
+                        "현재 저축액",
+                        f"{progress['current_savings']:,.0f}원",
+                        f"{progress['progress_rate']:.1f}%"
+                    )
+                
+                with col_p2:
+                    st.metric(
+                        "목표 금액",
+                        f"{progress['target_amount']:,.0f}원",
+                        f"D-{progress['remaining_days']}"
+                    )
+                
+                with col_p3:
+                    st.metric(
+                        "남은 금액",
+                        f"{progress['remaining_amount']:,.0f}원"
+                    )
+                
+                with col_p4:
+                    st.metric(
+                        "일일 저축 필요액",
+                        f"{progress['daily_need']:,.0f}원"
+                    )
+                
+                # 프로그레스 바
+                st.progress(min(progress['progress_rate'] / 100, 1.0))
+                
+                # 달성 가능성 분석
+                if progress['estimated_date']:
+                    if progress['is_achievable']:
+                        st.success(f"✅ 현재 속도로 {progress['estimated_date'].strftime('%Y-%m-%d')}에 달성 가능합니다!")
+                    else:
+                        st.warning(f"⚠️ 현재 속도로는 {progress['estimated_date'].strftime('%Y-%m-%d')}에 달성됩니다. 더 빠른 저축이 필요합니다.")
+                else:
+                    st.info("💡 더 많은 데이터가 쌓이면 달성 예측이 표시됩니다")
+                
+                # 월별 권장 저축액
+                monthly_need = savings_goal_manager.suggest_monthly_savings(goal, progress['current_savings'])
+                st.info(f"📅 **월별 권장 저축액**: {monthly_need:,.0f}원")
+                
+                # 목표 관리 버튼
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 3])
+                
+                with col_btn1:
+                    if progress['progress_rate'] >= 100:
+                        if st.button("🎉 완료", key=f"complete_{goal['id']}", use_container_width=True):
+                            savings_goal_manager.mark_as_completed(goal['id'])
+                            st.success("목표를 달성했습니다! 🎉")
+                            st.rerun()
+                
+                with col_btn2:
+                    if st.button("🗑️ 삭제", key=f"delete_goal_{goal['id']}", use_container_width=True):
+                        savings_goal_manager.delete_goal(goal['id'])
+                        st.success("목표가 삭제되었습니다")
+                        st.rerun()
+                
+                st.markdown("---")
+
+# 🆕 탭11: 반복 거래
+with tab11:
+    st.subheader("🔄 반복 거래 관리")
+    
+    st.markdown("""
+    구독료, 월세, 통신비 등 주기적으로 발생하는 거래를 자동으로 관리하세요.
+    - 매일/매주/매월/매년 주기 설정
+    - 미래 거래 자동 생성
+    - 활성/비활성 전환
+    """)
+    
+    st.markdown("---")
+    
+    # 반복 거래 추가
+    with st.expander("➕ 반복 거래 추가", expanded=False):
+        with st.form("add_recurring_form"):
+            col_r1, col_r2 = st.columns(2)
+            
+            with col_r1:
+                rec_name = st.text_input("거래명", placeholder="예: 넷플릭스")
+                rec_amount = st.number_input(
+                    "금액 (지출은 음수)",
+                    value=-14500,
+                    step=1000,
+                    help="지출: 음수, 수입: 양수"
+                )
+                rec_category = st.selectbox(
+                    "카테고리",
+                    options=category_manager.get_all_categories()
+                )
+            
+            with col_r2:
+                rec_frequency = st.selectbox(
+                    "주기",
+                    options=list(recurring_manager.FREQUENCY_TYPES.keys()),
+                    format_func=lambda x: recurring_manager.FREQUENCY_TYPES[x]
+                )
+                
+                rec_start = st.date_input(
+                    "시작 날짜",
+                    value=datetime.now()
+                )
+                
+                if rec_frequency == 'monthly':
+                    rec_day = st.number_input("매월 실행일 (1-31)", min_value=1, max_value=31, value=5)
+                elif rec_frequency == 'weekly':
+                    rec_day = st.selectbox("매주 실행 요일", options=[0,1,2,3,4,5,6], 
+                                          format_func=lambda x: ['월','화','수','목','금','토','일'][x])
+                else:
+                    rec_day = 1
+            
+            rec_memo = st.text_input("메모 (선택)", placeholder="월 구독료")
+            
+            submitted_rec = st.form_submit_button("💾 반복 거래 추가", use_container_width=True)
+            
+            if submitted_rec:
+                result = recurring_manager.add_recurring(
+                    name=rec_name,
+                    amount=rec_amount,
+                    category=rec_category,
+                    frequency=rec_frequency,
+                    start_date=rec_start,
+                    day_of_execution=rec_day,
+                    memo=rec_memo
+                )
+                
+                if result['success']:
+                    st.success(result['message'])
+                    st.rerun()
+                else:
+                    st.error(result['message'])
+    
+    st.markdown("---")
+    
+    # 활성 반복 거래 목록
+    active_recurring = recurring_manager.get_active_recurring()
+    
+    if not active_recurring:
+        st.info("📝 등록된 반복 거래가 없습니다. 위에서 추가해보세요!")
+    else:
+        st.markdown("### 📋 등록된 반복 거래")
+        
+        # 테이블 형식으로 표시
+        recurring_data = []
+        for rec in active_recurring:
+            recurring_data.append({
+                'ID': rec['id'],
+                '거래명': rec['name'],
+                '금액': f"{rec['amount']:,.0f}원",
+                '카테고리': rec['category'],
+                '주기': recurring_manager.FREQUENCY_TYPES[rec['frequency']],
+                '시작일': rec['start_date'],
+                '상태': '🟢 활성' if rec.get('active', True) else '⚪ 비활성'
+            })
+        
+        recurring_df = pd.DataFrame(recurring_data)
+        st.dataframe(recurring_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        
+        # 향후 30일 미리보기
+        st.markdown("### 📅 향후 30일 예정 거래")
+        
+        upcoming = recurring_manager.get_upcoming_transactions(days=30)
+        
+        if upcoming:
+            upcoming_df = pd.DataFrame(upcoming)
+            upcoming_df['날짜'] = pd.to_datetime(upcoming_df['날짜']).dt.strftime('%Y-%m-%d')
+            
+            display_cols = ['날짜', '적요', '금액', '분류']
+            st.dataframe(
+                upcoming_df[display_cols].style.format({'금액': '{:,.0f}원'}),
+                use_container_width=True
+            )
+            
+            total_expense = sum(t['금액'] for t in upcoming if t['금액'] < 0)
+            total_income = sum(t['금액'] for t in upcoming if t['금액'] > 0)
+            
+            col_sum1, col_sum2, col_sum3 = st.columns(3)
+            with col_sum1:
+                st.metric("예정 지출", f"{abs(total_expense):,.0f}원")
+            with col_sum2:
+                st.metric("예정 수입", f"{total_income:,.0f}원")
+            with col_sum3:
+                st.metric("순예정액", f"{total_income + total_expense:,.0f}원")
+        else:
+            st.info("향후 30일 동안 예정된 반복 거래가 없습니다")
+        
+        st.markdown("---")
+        
+        # 반복 거래 관리
+        st.markdown("### ⚙️ 반복 거래 관리")
+        
+        col_mgmt1, col_mgmt2 = st.columns(2)
+        
+        with col_mgmt1:
+            st.markdown("**거래 활성/비활성**")
+            toggle_id = st.selectbox(
+                "거래 선택",
+                options=[r['id'] for r in active_recurring],
+                format_func=lambda x: next(r['name'] for r in active_recurring if r['id'] == x)
+            )
+            
+            if st.button("🔄 활성/비활성 전환", use_container_width=True):
+                result = recurring_manager.toggle_active(toggle_id)
+                st.success(result['message'])
+                st.rerun()
+        
+        with col_mgmt2:
+            st.markdown("**거래 삭제**")
+            delete_id = st.selectbox(
+                "삭제할 거래",
+                options=[r['id'] for r in active_recurring],
+                format_func=lambda x: next(r['name'] for r in active_recurring if r['id'] == x),
+                key="delete_recurring_select"
+            )
+            
+            if st.button("🗑️ 삭제", use_container_width=True):
+                result = recurring_manager.delete_recurring(delete_id)
+                st.success(result['message'])
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # CSV에 자동 추가
+        st.markdown("### 📥 CSV 파일에 반복 거래 자동 추가")
+        
+        col_auto1, col_auto2 = st.columns(2)
+        
+        with col_auto1:
+            auto_start = st.date_input("추가 시작일", value=datetime.now())
+        
+        with col_auto2:
+            auto_end = st.date_input("추가 종료일", value=datetime.now() + timedelta(days=30))
+        
+        if st.button("📝 user_expenses.csv에 추가", type="primary", use_container_width=True):
+            csv_path = 'data/user_expenses.csv'
+            result = recurring_manager.auto_add_to_csv(csv_path, auto_start, auto_end)
+            
+            if result['success']:
+                if result['count'] > 0:
+                    st.success(result['message'])
+                    st.info("💡 페이지를 새로고침하여 변경사항을 확인하세요")
+                else:
+                    st.info(result['message'])
+            else:
+                st.error(result['message'])
+
+# 🆕 탭12: 예측 & 비교 분석
+with tab12:
+    st.subheader("🔮 지출 예측 & 비교 분석")
+    
+    st.markdown("""
+    과거 데이터를 분석하여 미래를 예측하고, 다양한 관점에서 소비 패턴을 비교하세요.
+    """)
+    
+    # 서브탭
+    subtab1, subtab2, subtab3, subtab4 = st.tabs([
+        "🔮 지출 예측",
+        "📊 월별 비교",
+        "🏷️ 태그 분석",
+        "📈 패턴 분석"
+    ])
+    
+    # 서브탭1: 지출 예측
+    with subtab1:
+        st.markdown("### 🔮 다음 달 지출 예측")
+        
+        # 전체 예측
+        prediction_result = expense_predictor.predict_next_month(df)
+        
+        if prediction_result['success']:
+            col_pred1, col_pred2, col_pred3, col_pred4 = st.columns(4)
+            
+            with col_pred1:
+                st.metric(
+                    "다음 달 예상 지출",
+                    f"{prediction_result['prediction']:,.0f}원",
+                    help="추세 70% + 계절성 30% 반영"
+                )
+            
+            with col_pred2:
+                trend_icon = "📈" if prediction_result['trend'] == 'increasing' else "📉" if prediction_result['trend'] == 'decreasing' else "➡️"
+                trend_text = "상승" if prediction_result['trend'] == 'increasing' else "하락" if prediction_result['trend'] == 'decreasing' else "안정"
+                st.metric(
+                    "추세",
+                    f"{trend_icon} {trend_text}",
+                    help="최근 3개월 추세"
+                )
+            
+            with col_pred3:
+                st.metric(
+                    "신뢰도",
+                    f"{prediction_result['confidence']:.1f}%",
+                    help="R² 스코어 기반"
+                )
+            
+            with col_pred4:
+                st.metric(
+                    "데이터 기간",
+                    f"{prediction_result['data_points']}개월",
+                    help="예측에 사용된 데이터"
+                )
+            
+            st.markdown("---")
+            
+            # 카테고리별 예측
+            st.markdown("### 📊 카테고리별 예측")
+            
+            category_predictions = expense_predictor.predict_by_category(df)
+            
+            if not category_predictions.empty:
+                st.dataframe(
+                    category_predictions.style.format({
+                        '최근 평균': '{:,.0f}원',
+                        '예측 금액': '{:,.0f}원',
+                        '전월 대비': '{:+.1f}%'
+                    }),
+                    use_container_width=True
+                )
+                
+                # 예측 차트
+                fig_pred = go.Figure()
+                
+                fig_pred.add_trace(go.Bar(
+                    x=category_predictions['카테고리'],
+                    y=category_predictions['예측 금액'],
+                    name='예측 금액',
+                    marker_color='#60a5fa'
+                ))
+                
+                fig_pred.update_layout(
+                    title="카테고리별 다음 달 예측",
+                    xaxis_title="카테고리",
+                    yaxis_title="금액 (원)",
+                    template=theme_manager.get_plotly_template(),
+                    showlegend=False
+                )
+                
+                st.plotly_chart(fig_pred, use_container_width=True)
+            else:
+                st.info("카테고리별 예측을 위한 데이터가 부족합니다")
+            
+            st.markdown("---")
+            
+            # 예측 정확도
+            st.markdown("### 🎯 예측 정확도 평가")
+            
+            accuracy = expense_predictor.get_prediction_accuracy(df)
+            
+            if accuracy['success']:
+                col_acc1, col_acc2, col_acc3 = st.columns(3)
+                
+                with col_acc1:
+                    st.metric("예측값", f"{accuracy['predicted']:,.0f}원")
+                
+                with col_acc2:
+                    st.metric("실제값", f"{accuracy['actual']:,.0f}원")
+                
+                with col_acc3:
+                    st.metric(
+                        "정확도",
+                        f"{accuracy['accuracy']:.1f}%",
+                        f"{accuracy['error_rate']:+.1f}% 오차"
+                    )
+                
+                if accuracy['accuracy'] >= 80:
+                    st.success("✅ 예측 모델의 정확도가 매우 높습니다!")
+                elif accuracy['accuracy'] >= 60:
+                    st.info("📊 예측 모델의 정확도가 양호합니다")
+                else:
+                    st.warning("⚠️ 더 많은 데이터가 쌓이면 정확도가 향상됩니다")
+            else:
+                st.info(accuracy['message'])
+            
+            st.markdown("---")
+            
+            # 예산 조정 제안
+            if budget_manager.budgets['default']:
+                st.markdown("### 💡 예산 조정 제안")
+                
+                suggestions = expense_predictor.suggest_budget_adjustments(
+                    df,
+                    budget_manager.budgets['default']
+                )
+                
+                if suggestions:
+                    for sugg in suggestions:
+                        with st.expander(f"📌 {sugg['카테고리']} - {sugg['사유']}"):
+                            col_s1, col_s2, col_s3 = st.columns(3)
+                            
+                            with col_s1:
+                                st.metric("현재 예산", f"{sugg['현재 예산']:,.0f}원")
+                            
+                            with col_s2:
+                                st.metric("예상 지출", f"{sugg['예상 지출']:,.0f}원")
+                            
+                            with col_s3:
+                                st.metric("조정 제안", f"{sugg['조정 제안']:,.0f}원")
+                else:
+                    st.success("✅ 현재 예산이 적정합니다!")
+        
+        else:
+            st.warning(prediction_result['message'])
+    
+    # 서브탭2: 월별 비교
+    with subtab2:
+        st.markdown("### 📊 이번 달 vs 지난 달")
+        
+        comparison = comparison_analyzer.compare_this_month_vs_last_month(df)
+        
+        if comparison:
+            summary = comparison['summary']
+            
+            # 요약 지표
+            col_comp1, col_comp2 = st.columns(2)
+            
+            with col_comp1:
+                st.markdown(f"#### {summary['month1']}")
+                st.metric("지출", f"{summary['expense1']:,.0f}원")
+                st.metric("수입", f"{summary['income1']:,.0f}원")
+                st.metric("거래 건수", f"{summary['transaction_count1']}건")
+            
+            with col_comp2:
+                st.markdown(f"#### {summary['month2']}")
+                st.metric(
+                    "지출", 
+                    f"{summary['expense2']:,.0f}원",
+                    f"{summary['expense_change']:+,.0f}원 ({summary['expense_change_pct']:+.1f}%)"
+                )
+                st.metric(
+                    "수입",
+                    f"{summary['income2']:,.0f}원",
+                    f"{summary['income_change']:+,.0f}원 ({summary['income_change_pct']:+.1f}%)"
+                )
+                st.metric(
+                    "거래 건수",
+                    f"{summary['transaction_count2']}건",
+                    f"{summary['transaction_count2'] - summary['transaction_count1']:+}건"
+                )
+            
+            st.markdown("---")
+            
+            # 카테고리별 비교
+            st.markdown("### 📋 카테고리별 변화")
+            
+            category_comp = comparison['category_comparison']
+            
+            if not category_comp.empty:
+                st.dataframe(
+                    category_comp.style.format({
+                        summary['month1']: '{:,.0f}원',
+                        summary['month2']: '{:,.0f}원',
+                        '증감액': '{:+,.0f}원',
+                        '증감률(%)': '{:+.1f}%'
+                    }),
+                    use_container_width=True
+                )
+                
+                # 증감 상위/하위
+                col_top1, col_top2 = st.columns(2)
+                
+                with col_top1:
+                    st.markdown("#### 📈 증가 TOP 5")
+                    top_increased = category_comp.nlargest(5, '증감액')[['카테고리', '증감액', '증감률(%)']]
+                    
+                    for _, row in top_increased.iterrows():
+                        st.error(f"**{row['카테고리']}**: +{row['증감액']:,.0f}원 ({row['증감률(%)']:+.1f}%)")
+                
+                with col_top2:
+                    st.markdown("#### 📉 감소 TOP 5")
+                    top_decreased = category_comp.nsmallest(5, '증감액')[['카테고리', '증감액', '증감률(%)']]
+                    
+                    for _, row in top_decreased.iterrows():
+                        st.success(f"**{row['카테고리']}**: {row['증감액']:,.0f}원 ({row['증감률(%)']:+.1f}%)")
+        else:
+            st.info("비교할 데이터가 부족합니다")
+        
+        st.markdown("---")
+        
+        # 요일별 패턴
+        st.markdown("### 📅 요일별 소비 패턴")
+        
+        weekday_pattern = comparison_analyzer.get_weekday_pattern(df)
+        
+        if weekday_pattern is not None and not weekday_pattern.empty:
+            st.dataframe(
+                weekday_pattern.style.format({
+                    '총지출': '{:,.0f}원',
+                    '평균지출': '{:,.0f}원',
+                    '거래건수': '{:.0f}건'
+                }),
+                use_container_width=True
+            )
+            
+            # 요일별 차트
+            fig_weekday = go.Figure()
+            
+            fig_weekday.add_trace(go.Bar(
+                x=weekday_pattern.index,
+                y=weekday_pattern['총지출'],
+                name='총지출',
+                marker_color='#ff5252'
+            ))
+            
+            fig_weekday.update_layout(
+                title="요일별 지출",
+                xaxis_title="요일",
+                yaxis_title="금액 (원)",
+                template=theme_manager.get_plotly_template()
+            )
+            
+            st.plotly_chart(fig_weekday, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # 소비 속도 (월초/중/말)
+        st.markdown("### ⚡ 월내 소비 속도")
+        
+        velocity = comparison_analyzer.get_spending_velocity(df)
+        
+        if velocity is not None and not velocity.empty:
+            st.dataframe(
+                velocity.style.format({
+                    '총지출': '{:,.0f}원',
+                    '평균지출': '{:,.0f}원',
+                    '거래건수': '{:.0f}건'
+                }),
+                use_container_width=True
+            )
+            
+            total_spending = velocity['총지출'].sum()
+            
+            for period in velocity.index:
+                amount = velocity.loc[period, '총지출']
+                percentage = (amount / total_spending * 100) if total_spending > 0 else 0
+                
+                st.progress(percentage / 100, text=f"{period}: {amount:,.0f}원 ({percentage:.1f}%)")
+    
+    # 서브탭3: 태그 분석
+    with subtab3:
+        st.markdown("### 🏷️ 태그 관리")
+        
+        # 태그 추가
+        with st.expander("➕ 거래에 태그 추가", expanded=False):
+            st.markdown("**태그를 추가할 거래를 선택하세요**")
+            
+            # 최근 거래 20건
+            recent_df = df.sort_values('날짜', ascending=False).head(20)
+            
+            for idx, row in recent_df.iterrows():
+                transaction_id = f"{row['날짜']}_{row['적요']}_{row['금액']}"
+                existing_tags = tag_manager.get_transaction_tags(transaction_id)
+                
+                col_t1, col_t2, col_t3 = st.columns([2, 2, 1])
+                
+                with col_t1:
+                    st.text(f"{row['날짜'].strftime('%Y-%m-%d')} | {row['적요']}")
+                
+                with col_t2:
+                    st.text(f"{row['금액']:,.0f}원 | {row['분류']}")
+                
+                with col_t3:
+                    if existing_tags:
+                        st.caption(f"🏷️ {', '.join(existing_tags)}")
+                    else:
+                        st.caption("태그 없음")
+                
+                # 태그 추가 폼
+                with st.form(f"tag_form_{idx}"):
+                    col_tf1, col_tf2 = st.columns([3, 1])
+                    
+                    with col_tf1:
+                        # 추천 태그
+                        suggested = tag_manager.suggest_tags(row['적요'])
+                        
+                        selected_tags = st.multiselect(
+                            "태그 선택",
+                            options=tag_manager.get_all_tags(),
+                            default=suggested[:2] if suggested else [],
+                            key=f"tags_{idx}",
+                            label_visibility="collapsed"
+                        )
+                    
+                    with col_tf2:
+                        if st.form_submit_button("추가", use_container_width=True):
+                            if selected_tags:
+                                result = tag_manager.add_tag_to_transaction(transaction_id, selected_tags)
+                                if result['success']:
+                                    st.success("✅")
+                                    st.rerun()
+                
+                st.markdown("---")
+        
+        st.markdown("---")
+        
+        # 태그 통계
+        st.markdown("### 📊 태그별 통계")
+        
+        tag_stats = tag_manager.get_tag_statistics(df)
+        
+        if not tag_stats.empty:
+            st.dataframe(
+                tag_stats.style.format({
+                    '총 지출': '{:,.0f}원',
+                    '평균 지출': '{:,.0f}원'
+                }),
+                use_container_width=True
+            )
+            
+            # 인기 태그
+            st.markdown("### 🌟 인기 태그 TOP 10")
+            
+            popular = tag_manager.get_popular_tags(10)
+            
+            if popular:
+                for i, (tag, count) in enumerate(popular, 1):
+                    st.write(f"{i}. **#{tag}** - {count}건")
+        else:
+            st.info("아직 태그가 없습니다. 위에서 거래에 태그를 추가해보세요!")
+        
+        st.markdown("---")
+        
+        # 태그 필터링
+        st.markdown("### 🔍 태그로 필터링")
+        
+        all_tags = tag_manager.get_all_tags()
+        
+        if all_tags:
+            selected_filter_tags = st.multiselect(
+                "필터링할 태그",
+                options=all_tags,
+                help="선택한 태그가 포함된 거래만 표시"
+            )
+            
+            match_all = st.checkbox("모든 태그 포함 (AND 조건)", value=False)
+            
+            if selected_filter_tags:
+                filtered = tag_manager.filter_by_tags(df, selected_filter_tags, match_all)
+                
+                st.info(f"📌 {len(filtered)}건의 거래가 필터링되었습니다")
+                
+                if len(filtered) > 0:
+                    display_cols = ['날짜', '적요', '금액', '분류', '태그']
+                    st.dataframe(
+                        filtered[display_cols].style.format({'금액': '{:,.0f}원'}),
+                        use_container_width=True
+                    )
+                    
+                    total_filtered = filtered[filtered['구분'] == '지출']['금액_절대값'].sum()
+                    st.metric("필터링된 거래의 총 지출", f"{total_filtered:,.0f}원")
+        else:
+            st.info("태그를 먼저 추가해주세요")
+    
+    # 서브탭4: 패턴 분석
+    with subtab4:
+        st.markdown("### 📈 소비 패턴 분석")
+        
+        patterns = expense_predictor.detect_spending_patterns(df)
+        
+        # 패턴 요약
+        col_pat1, col_pat2, col_pat3, col_pat4 = st.columns(4)
+        
+        with col_pat1:
+            variance = patterns['monthly_variance']
+            var_icon = "📊" if variance['interpretation'] == 'stable' else "📈" if variance['interpretation'] == 'moderate' else "📉"
+            var_text = "안정" if variance['interpretation'] == 'stable' else "보통" if variance['interpretation'] == 'moderate' else "불안정"
+            
+            st.metric(
+                "지출 변동성",
+                f"{var_icon} {var_text}",
+                f"CV: {variance['cv']:.1f}%",
+                help="변동계수가 낮을수록 안정적"
+            )
+        
+        with col_pat2:
+            peak_day = patterns['peak_spending_day']
+            st.metric(
+                "최대 지출 요일",
+                f"📅 {peak_day if peak_day else '-'}",
+                help="가장 지출이 많은 요일"
+            )
+        
+        with col_pat3:
+            consistency = patterns['spending_consistency']
+            st.metric(
+                "소비 일관성",
+                f"{consistency:.0f}점",
+                help="100점에 가까울수록 규칙적"
+            )
+        
+        with col_pat4:
+            concentration = patterns['category_concentration']
+            st.metric(
+                "지출 집중도",
+                f"{concentration:.1f}%",
+                help="상위 3개 카테고리 비중"
+            )
+        
+        st.markdown("---")
+        
+        # 이상 거래 탐지
+        st.markdown("### 🚨 이상 거래 탐지")
+        
+        anomalies = comparison_analyzer.get_anomalies(df, threshold=2.0)
+        
+        if not anomalies.empty:
+            st.warning(f"⚠️ {len(anomalies)}건의 이상 거래가 감지되었습니다")
+            
+            st.dataframe(
+                anomalies.style.format({
+                    '금액': '{:,.0f}원',
+                    '카테고리평균': '{:,.0f}원',
+                    'Z-Score': '{:.2f}'
+                }),
+                use_container_width=True
+            )
+            
+            st.caption("💡 Z-Score가 2 이상이면 통계적 이상치입니다")
+        else:
+            st.success("✅ 이상 거래가 감지되지 않았습니다")
+        
+        st.markdown("---")
+        
+        # 카테고리 구성 변화
+        st.markdown("### 🔄 카테고리 구성 변화 (최근 3개월)")
+        
+        category_mix = comparison_analyzer.get_category_mix_change(df)
+        
+        if category_mix is not None and not category_mix.empty:
+            st.dataframe(
+                category_mix.style.format('{:.1f}%'),
+                use_container_width=True
+            )
+            
+            st.caption("각 카테고리가 전체 지출에서 차지하는 비율")
+        else:
+            st.info("최소 2개월의 데이터가 필요합니다")
+
 st.markdown("---")
-st.caption("💡 Expense Analyzer v2.3 | Excel + 통계 + 카테고리 관리 + 데이터 검증 🤖")
+st.caption("💡 Expense Analyzer v2.5.0 | 다크모드 + 저축목표 + 반복거래 + 태그 + 비교분석 + AI예측 🚀")
