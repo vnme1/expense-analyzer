@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import base64
 from datetime import datetime, timedelta
+from io import BytesIO  # 🆕 추가!
 
 from utils.preprocess import (
     load_data, 
@@ -24,7 +25,6 @@ from utils.pdf_generator import PDFReportGenerator
 from utils.category_manager import CategoryManager
 from utils.data_validator import DataValidator
 from utils.export_manager import ExportManager
-#  Phase 1&2 모듈
 from utils.theme_manager import ThemeManager
 from utils.savings_goal import SavingsGoalManager
 from utils.recurring_transactions import RecurringTransactionManager
@@ -136,10 +136,9 @@ st.markdown("**CSV/Excel 파일을 업로드하여 수입/지출을 분석하세
 
 # 사이드바
 with st.sidebar:
-    # 🆕 호버 효과만 수정 (다크모드 CSS 제거)
+    # 🆕 호버 효과만 수정
     st.markdown("""
     <style>
-    /* 파일 업로더 호버 색상만 변경 */
     [data-testid="stFileUploadDropzone"]:hover {
         border-color: #3b82f6 !important;
         background-color: rgba(59, 130, 246, 0.05) !important;
@@ -157,7 +156,7 @@ with st.sidebar:
     with col_theme2:
         if st.button("🔄", help="테마 변경", use_container_width=True):
             new_theme = theme_manager.toggle_theme()
-            st.rerun()  # ← 즉시 테마 변경!
+            st.rerun()
     
     st.markdown("---")
     
@@ -168,7 +167,7 @@ with st.sidebar:
         help="날짜, 금액, 분류 컬럼이 포함된 파일"
     )
 
-    # 🆕 파일이 업로드되면 세션에 저장 (추가!)
+    # 🆕 파일이 업로드되면 세션에 저장
     if uploaded_file is not None:
         st.session_state['uploaded_file_data'] = uploaded_file.getvalue()
         st.session_state['uploaded_file_name'] = uploaded_file.name
@@ -199,6 +198,7 @@ with st.sidebar:
 - 첫 번째 시트의 데이터를 읽음
 - 컬럼명은 CSV와 동일
         """)
+
     
     #  빠른 거래 입력
     st.markdown("---")
@@ -290,7 +290,7 @@ with st.sidebar:
                     except Exception as e:
                         st.error(f"❌ 저장 실패: {str(e)}")
 
-if uploaded_file is None:
+if uploaded_file is None and st.session_state['uploaded_file_data'] is None:
     st.info("👈 왼쪽 사이드바에서 CSV 또는 Excel 파일을 업로드해주세요")
     
     st.markdown("---")
@@ -350,13 +350,11 @@ try:
             with open(sample_path, 'r', encoding='utf-8-sig') as f:
                 df = load_data(f)
             st.success(f"✅ 샘플 데이터 로드 완료! ({len(df)}건)")
-            st.info("💡 사이드바에서 직접 CSV/Excel 파일을 업로드하면 자신의 데이터를 분석할 수 있습니다")
         else:
             st.error("샘플 데이터 파일을 찾을 수 없습니다")
-            st.session_state['use_sample'] = False
             st.stop()
     else:
-        # 🆕 세션에서 파일 데이터 읽기 (테마 전환 시에도 유지)
+        # 🆕 세션에서 파일 데이터 읽기
         if uploaded_file is not None:
             df = load_data(uploaded_file)
         elif st.session_state['uploaded_file_data'] is not None:
@@ -367,6 +365,7 @@ try:
             st.error("파일을 찾을 수 없습니다")
             st.stop()
     
+    # AI 자동 분류
     if use_ai:
         if '분류' not in df.columns or df['분류'].isna().any() or (df['분류'] == '기타').any():
             with st.spinner('🤖 AI가 카테고리를 분석 중입니다...'):
@@ -377,12 +376,8 @@ try:
                 else:
                     mask = df['분류'].isna() | (df['분류'] == '기타')
                     df.loc[mask, '분류'] = df.loc[mask, '분류_AI']
-                
-            st.success(f"✅ {len(df)}건의 거래 내역을 불러왔습니다 (AI 자동 분류 적용)")
             
-            if '분류_AI' in df.columns:
-                ai_count = df['분류_AI'].notna().sum()
-                st.info(f"🤖 AI가 {ai_count}건의 카테고리를 자동으로 분류했습니다")
+            st.success(f"✅ {len(df)}건의 거래 내역을 불러왔습니다 (AI 자동 분류 적용)")
         else:
             st.success(f"✅ {len(df)}건의 거래 내역을 불러왔습니다")
     else:
