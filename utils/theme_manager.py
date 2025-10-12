@@ -75,6 +75,10 @@ class ThemeManager:
         """Streamlit에 테마 적용 (CSS 주입)"""
         theme = self.current_theme
         
+        # 라이트 모드일 때는 CSS 적용 안 함
+        if theme['name'] == 'light':
+            return
+        
         css = f"""
         <style>
         /* 전역 배경색 */
@@ -82,6 +86,7 @@ class ThemeManager:
             background-color: {theme['background']};
             color: {theme['text']};
         }}
+    
         
         /* 사이드바 */
         section[data-testid="stSidebar"] {{

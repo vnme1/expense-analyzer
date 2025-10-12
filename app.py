@@ -51,6 +51,13 @@ if 'suggested_budgets' not in st.session_state:
 if 'quick_filter' not in st.session_state:
     st.session_state['quick_filter'] = None
 
+# 🆕 업로드된 파일을 세션에 저장 (테마 전환 시에도 유지)
+if 'uploaded_file_data' not in st.session_state:
+    st.session_state['uploaded_file_data'] = None
+
+if 'uploaded_file_name' not in st.session_state:
+    st.session_state['uploaded_file_name'] = None
+
 @st.cache_resource
 def get_classifier():
     """AI 분류기 싱글톤"""
@@ -120,14 +127,26 @@ tag_manager = get_tag_manager()
 comparison_analyzer = get_comparison_analyzer()
 expense_predictor = get_expense_predictor()
 
-# 🎨 테마 적용
-theme_manager.apply_theme()
+# 🎨 테마 적용 (다크 모드일 때만)
+if theme_manager.get_theme_name() == 'dark':
+    theme_manager.apply_theme()
 
 st.title("💰 개인 가계부 분석기")
 st.markdown("**CSV/Excel 파일을 업로드하여 수입/지출을 분석하세요 + AI 자동 분류 🤖**")
 
 # 사이드바
 with st.sidebar:
+    # 🆕 호버 효과만 수정 (다크모드 CSS 제거)
+    st.markdown("""
+    <style>
+    /* 파일 업로더 호버 색상만 변경 */
+    [data-testid="stFileUploadDropzone"]:hover {
+        border-color: #3b82f6 !important;
+        background-color: rgba(59, 130, 246, 0.05) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     # 🌓 다크 모드 토글
     st.markdown("### 🎨 테마")
     current_theme = theme_manager.get_theme_name()
@@ -138,7 +157,7 @@ with st.sidebar:
     with col_theme2:
         if st.button("🔄", help="테마 변경", use_container_width=True):
             new_theme = theme_manager.toggle_theme()
-            st.rerun()
+            st.rerun()  # ← 즉시 테마 변경!
     
     st.markdown("---")
     
@@ -148,6 +167,11 @@ with st.sidebar:
         type=['csv', 'xlsx', 'xls'],
         help="날짜, 금액, 분류 컬럼이 포함된 파일"
     )
+
+    # 🆕 파일이 업로드되면 세션에 저장 (추가!)
+    if uploaded_file is not None:
+        st.session_state['uploaded_file_data'] = uploaded_file.getvalue()
+        st.session_state['uploaded_file_name'] = uploaded_file.name
     
     st.markdown("---")
     
@@ -332,7 +356,16 @@ try:
             st.session_state['use_sample'] = False
             st.stop()
     else:
-        df = load_data(uploaded_file)
+        # 🆕 세션에서 파일 데이터 읽기 (테마 전환 시에도 유지)
+        if uploaded_file is not None:
+            df = load_data(uploaded_file)
+        elif st.session_state['uploaded_file_data'] is not None:
+            file_data = BytesIO(st.session_state['uploaded_file_data'])
+            file_data.name = st.session_state['uploaded_file_name']
+            df = load_data(file_data)
+        else:
+            st.error("파일을 찾을 수 없습니다")
+            st.stop()
     
     if use_ai:
         if '분류' not in df.columns or df['분류'].isna().any() or (df['분류'] == '기타').any():
