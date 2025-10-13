@@ -61,6 +61,9 @@ class BudgetManager:
             target_month: 특정 월 (None이면 기본 예산)
         """
         if target_month:
+            # 🔥 월을 문자열로 강제 변환
+            target_month = str(target_month)
+            
             # 월별 예산
             if target_month not in self.budgets['monthly']:
                 self.budgets['monthly'][target_month] = {}
@@ -379,4 +382,5 @@ class BudgetManager:
         Returns:
             list: 월 목록
         """
-        return sorted(self.budgets['monthly'].keys())
+        # 모든 키를 문자열로 변환 후 정렬
+        return sorted([str(k) for k in self.budgets['monthly'].keys()])
