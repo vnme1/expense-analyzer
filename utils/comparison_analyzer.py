@@ -58,9 +58,10 @@ class ComparisonAnalyzer:
                 '증감률(%)': change_pct
             })
         
-        # ✅ DataFrame 생성 후 비어있는지 확인
+        # DataFrame 생성
         category_changes_df = pd.DataFrame(category_changes)
         
+        # ✅ 빈 DataFrame
         # ✅ 빈 DataFrame이 아닐 때만 정렬
         if not category_changes_df.empty and '증감액' in category_changes_df.columns:
             category_changes_df = category_changes_df.sort_values('증감액', ascending=False)
@@ -88,6 +89,12 @@ class ComparisonAnalyzer:
         current_month = pd.Timestamp.now().strftime('%Y-%m')
         last_month = (pd.Timestamp.now() - pd.DateOffset(months=1)).strftime('%Y-%m')
         
+        # ✅ 데이터 존재 여부 확인
+        available_months = df['년월'].unique()
+        
+        if current_month not in available_months or last_month not in available_months:
+            return None
+        
         return self.compare_months(df, last_month, current_month)
     
     def get_weekday_pattern(self, df):
@@ -101,6 +108,9 @@ class ComparisonAnalyzer:
             pd.DataFrame: 요일별 통계
         """
         expense_df = df[df['구분'] == '지출'].copy()
+        
+        if len(expense_df) == 0:
+            return pd.DataFrame()
         
         expense_df['요일'] = expense_df['날짜'].dt.day_name()
         expense_df['요일_한글'] = expense_df['요일'].map({
@@ -117,7 +127,7 @@ class ComparisonAnalyzer:
         
         # 요일 순서 정렬
         weekday_order = ['월', '화', '수', '목', '금', '토', '일']
-        weekday_stats = weekday_stats.reindex(weekday_order)
+        weekday_stats = weekday_stats.reindex(weekday_order, fill_value=0)
         
         return weekday_stats
     
@@ -134,6 +144,9 @@ class ComparisonAnalyzer:
             pd.DataFrame: 기간별 추이
         """
         category_df = df[df['분류'] == category].copy()
+        
+        if len(category_df) == 0:
+            return pd.DataFrame()
         
         if period == 'monthly':
             trend = category_df.groupby('년월').agg({
@@ -160,6 +173,10 @@ class ComparisonAnalyzer:
             dict: 증가/감소 카테고리
         """
         comparison = self.compare_this_month_vs_last_month(df)
+        
+        if not comparison or comparison.get('category_comparison') is None:
+            return {'increased': [], 'decreased': []}
+        
         category_df = comparison['category_comparison']
         
         if category_df.empty:
@@ -192,6 +209,9 @@ class ComparisonAnalyzer:
         
         expense_df = df[df['구분'] == '지출'].copy()
         
+        if len(expense_df) == 0:
+            return pd.DataFrame()
+        
         # 시간대 분류
         def get_time_period(hour):
             if 6 <= hour < 12:
@@ -221,9 +241,12 @@ class ComparisonAnalyzer:
             df: 거래내역 DataFrame
             
         Returns:
-            dict: 시기별 소비 분석
+            pd.DataFrame: 시기별 소비 분석
         """
         expense_df = df[df['구분'] == '지출'].copy()
+        
+        if len(expense_df) == 0:
+            return pd.DataFrame()
         
         # 일자 기준 분류
         def get_period(day):
@@ -244,7 +267,7 @@ class ComparisonAnalyzer:
         
         # 순서 정렬
         period_order = ['월초 (1-10일)', '월중 (11-20일)', '월말 (21일~)']
-        period_stats = period_stats.reindex(period_order)
+        period_stats = period_stats.reindex(period_order, fill_value=0)
         
         return period_stats
     
@@ -313,6 +336,9 @@ class ComparisonAnalyzer:
             
             total = expense_df['금액_절대값'].sum()
             
+            if total == 0:
+                continue
+            
             category_sum = expense_df.groupby('분류')['금액_절대값'].sum()
             
             for cat, amount in category_sum.items():
@@ -322,6 +348,9 @@ class ComparisonAnalyzer:
                     '금액': amount,
                     '비중(%)': (amount / total * 100) if total > 0 else 0
                 })
+        
+        if not mix_data:
+            return None
         
         mix_df = pd.DataFrame(mix_data)
         
@@ -344,6 +373,9 @@ class ComparisonAnalyzer:
         """
         expense_df = df[df['구분'] == '지출'].copy()
         
+        if len(expense_df) == 0:
+            return pd.DataFrame()
+        
         # 카테고리별 평균과 표준편차
         anomalies = []
         
@@ -355,6 +387,9 @@ class ComparisonAnalyzer:
             
             mean = cat_df['금액_절대값'].mean()
             std = cat_df['금액_절대값'].std()
+            
+            if std == 0:  # 표준편차가 0이면 스킵
+                continue
             
             # 평균 ± threshold * 표준편차 범위 밖
             lower = mean - threshold * std

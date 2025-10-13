@@ -23,31 +23,66 @@ def load_data(file):
         # Excel 파일 읽기
         df = pd.read_excel(file, engine='openpyxl')
     else:
-        # CSV 파일 읽기
-        df = pd.read_csv(file, encoding='utf-8-sig')
+        # ✅ CSV 파일 읽기 (다중 인코딩 시도)
+        encodings = ['utf-8-sig', 'cp949', 'euc-kr', 'utf-8', 'latin1']
+        df = None
+        last_error = None
+        
+        for encoding in encodings:
+            try:
+                # 파일 포인터 리셋 (재시도 시 필요)
+                if hasattr(file, 'seek'):
+                    file.seek(0)
+                
+                df = pd.read_csv(file, encoding=encoding)
+                break  # 성공하면 루프 종료
+                
+            except (UnicodeDecodeError, LookupError) as e:
+                last_error = e
+                continue
+        
+        if df is None:
+            raise ValueError(f"지원하지 않는 파일 인코딩입니다. 시도한 인코딩: {encodings}\n마지막 오류: {last_error}")
     
     # 필수 컬럼 확인
     required_cols = ['날짜', '금액']
-    if not all(col in df.columns for col in required_cols):
-        raise ValueError(f"필수 컬럼이 누락되었습니다: {required_cols}")
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    
+    if missing_cols:
+        raise ValueError(f"필수 컬럼이 누락되었습니다: {missing_cols}")
     
     # 날짜 형식 변환
-    df['날짜'] = pd.to_datetime(df['날짜'])
+    df['날짜'] = pd.to_datetime(df['날짜'], errors='coerce')
+    
+    # 날짜 변환 실패 체크
+    if df['날짜'].isna().any():
+        invalid_count = df['날짜'].isna().sum()
+        raise ValueError(f"날짜 형식이 잘못된 행이 {invalid_count}건 있습니다")
+    
     df['년월'] = df['날짜'].dt.to_period('M').astype(str)
     
     # 금액을 숫자로 변환
     df['금액'] = pd.to_numeric(df['금액'], errors='coerce')
     
+    # 금액 변환 실패 체크
+    if df['금액'].isna().any():
+        invalid_count = df['금액'].isna().sum()
+        print(f"⚠️ 금액이 잘못된 행 {invalid_count}건 제거")
+    
+    # 결측치 제거
+    df = df.dropna(subset=['금액', '날짜'])
+    
     # 수입/지출 구분
     df['구분'] = df['금액'].apply(lambda x: '수입' if x > 0 else '지출')
     df['금액_절대값'] = df['금액'].abs()
     
-    # 결측치 제거
-    df = df.dropna(subset=['금액'])
-    
     # 분류 컬럼이 없으면 기본값 설정
     if '분류' not in df.columns:
         df['분류'] = '기타'
+    
+    # 적요 컬럼이 없으면 생성
+    if '적요' not in df.columns:
+        df['적요'] = '거래'
     
     return df.sort_values('날짜')
 
@@ -63,6 +98,10 @@ def summarize_by_category(df):
         pd.Series: 카테고리별 지출 합계 (내림차순)
     """
     expense_df = df[df['구분'] == '지출']
+    
+    if len(expense_df) == 0:
+        return pd.Series(dtype=float)
+    
     summary = expense_df.groupby('분류')['금액_절대값'].sum()
     return summary.sort_values(ascending=False)
 

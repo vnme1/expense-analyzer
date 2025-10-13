@@ -64,8 +64,8 @@ def _render_add_recurring(recurring_manager, category_manager):
                 rec_amount = st.number_input(
                     "금액 (지출은 음수)",
                     value=-14500,
-                    step=1000
-                    help="지출: 음수, 수입: 양수"
+                    step=1000,
+                    help="지출: 음수, 수입: 양수"  # ✅ 수정됨
                 )
                 rec_category = st.selectbox(
                     "카테고리",

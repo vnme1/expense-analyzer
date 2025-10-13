@@ -1,9 +1,21 @@
-streamlit>=1.31.0
-pandas>=2.2.0
-plotly>=5.18.0
-matplotlib>=3.8.0
-seaborn>=0.13.0
-openpyxl>=3.1.0
-scikit-learn>=1.4.0
-reportlab>=4.0.0
-kaleido>=0.2.1
+# 웹 프레임워크
+streamlit==1.31.1
+
+# 데이터 처리
+pandas==2.2.0
+openpyxl==3.1.2
+
+# 시각화
+plotly==5.18.0
+matplotlib==3.8.2
+seaborn==0.13.1
+
+# 머신러닝
+scikit-learn==1.4.0
+
+# PDF 생성
+reportlab==4.0.9
+kaleido==0.2.1
+
+# 기타
+numpy>=1.24.0

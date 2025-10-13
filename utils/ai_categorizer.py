@@ -8,17 +8,23 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 import pickle
 import os
+from pathlib import Path  # ✅ 추가
 
 
 class CategoryClassifier:
     """카테고리 자동 분류기"""
     
-    def __init__(self, model_path='models/category_model.pkl'):
+    def __init__(self, model_path=None):  # ✅ 수정
         """
         Args:
-            model_path: 학습된 모델 저장 경로
+            model_path: 학습된 모델 저장 경로 (None이면 자동 설정)
         """
-        self.model_path = model_path
+        # ✅ 프로젝트 루트 기준 경로 설정
+        if model_path is None:
+            project_root = Path(__file__).parent.parent
+            model_path = project_root / 'models' / 'category_model.pkl'
+        
+        self.model_path = str(model_path)  # pickle은 str 필요
         self.pipeline = None
         self.categories = [
             '식비', '교통', '쇼핑', '여가', '카페', 
@@ -81,8 +87,10 @@ class CategoryClassifier:
         # 모델 학습
         self.pipeline.fit(X, y)
         
-        # 모델 저장
-        os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
+        # ✅ 모델 저장 (디렉토리 자동 생성)
+        model_dir = Path(self.model_path).parent
+        model_dir.mkdir(parents=True, exist_ok=True)
+        
         with open(self.model_path, 'wb') as f:
             pickle.dump(self.pipeline, f)
         
@@ -91,10 +99,14 @@ class CategoryClassifier:
     def load_model(self):
         """저장된 모델 로드"""
         if os.path.exists(self.model_path):
-            with open(self.model_path, 'rb') as f:
-                self.pipeline = pickle.load(f)
-            print(f"✅ 모델 로드 완료: {self.model_path}")
-            return True
+            try:
+                with open(self.model_path, 'rb') as f:
+                    self.pipeline = pickle.load(f)
+                print(f"✅ 모델 로드 완료: {self.model_path}")
+                return True
+            except Exception as e:
+                print(f"⚠️ 모델 로드 실패: {e}")
+                return False
         return False
     
     def predict(self, text):
@@ -123,20 +135,24 @@ class CategoryClassifier:
         except:
             return '기타'
     
-    def predict_batch(self, texts):
+    def predict_batch(self, texts, batch_size=100):  # ✅ 배치 처리 추가
         """
-        여러 텍스트에 대한 배치 예측
+        여러 텍스트에 대한 배치 예측 (성능 최적화)
         
         Args:
             texts: 텍스트 리스트 또는 Series
+            batch_size: 배치 크기
             
         Returns:
             list: 예측된 카테고리 리스트
         """
         predictions = []
         
-        for text in texts:
-            predictions.append(self.predict(text))
+        # 대용량 데이터는 배치 처리
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i+batch_size]
+            batch_predictions = [self.predict(text) for text in batch]
+            predictions.extend(batch_predictions)
         
         return predictions
     
