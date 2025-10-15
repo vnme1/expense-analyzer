@@ -1,9 +1,15 @@
-"""Expense Analyzer"""
+"""
+Expense Analyzer - 개인 가계부 분석 대시보드
+v3.0 - SQLite 데이터베이스 통합
+"""
 import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
 from io import BytesIO
 import os
-import pandas as pd
-from datetime import datetime
+
+# 유틸리티 임포트
+from utils.database import ExpenseDatabase
 from utils.preprocess import load_data
 from utils.ai_categorizer import CategoryClassifier
 from utils.budget_manager import BudgetManager
@@ -17,25 +23,42 @@ from utils.recurring_transactions import RecurringTransactionManager
 from utils.tag_manager import TagManager
 from utils.comparison_analyzer import ComparisonAnalyzer
 from utils.expense_predictor import ExpensePredictor
-from utils.auto_save import AutoSaveManager
 from utils.search_engine import SearchEngine
 from utils.favorites_manager import FavoritesManager
 from utils.advanced_filter import AdvancedFilter
 
-st.set_page_config(page_title="Expense Analyzer", page_icon="💰", layout="wide")
+# 페이지 설정
+st.set_page_config(
+    page_title="Expense Analyzer",
+    page_icon="💰",
+    layout="wide"
+)
 
-if 'uploaded_file_data' not in st.session_state:
-    st.session_state['uploaded_file_data'] = None
-if 'uploaded_file_name' not in st.session_state:
-    st.session_state['uploaded_file_name'] = None
+# 세션 상태 초기화
+if 'show_budget_settings' not in st.session_state:
+    st.session_state['show_budget_settings'] = False
+
 if 'use_sample' not in st.session_state:
     st.session_state['use_sample'] = False
 
+if 'suggested_budgets' not in st.session_state:
+    st.session_state['suggested_budgets'] = None
+
+if 'quick_filter' not in st.session_state:
+    st.session_state['quick_filter'] = None
+
+if 'db_migrated' not in st.session_state:
+    st.session_state['db_migrated'] = False
+
+# 관리자 객체 캐싱
 @st.cache_resource
 def get_managers():
+    """모든 관리자 객체 싱글톤"""
     classifier = CategoryClassifier()
     classifier.load_model()
+    
     return {
+        'database': ExpenseDatabase(),
         'classifier': classifier,
         'budget_manager': BudgetManager(),
         'theme_manager': ThemeManager(),
@@ -48,77 +71,137 @@ def get_managers():
         'tag_manager': TagManager(),
         'comparison_analyzer': ComparisonAnalyzer(),
         'expense_predictor': ExpensePredictor(),
-        'auto_save': AutoSaveManager(),
         'search_engine': SearchEngine(),
         'favorites_manager': FavoritesManager(),
         'advanced_filter': AdvancedFilter()
     }
 
 managers = get_managers()
+db = managers['database']
 theme_manager = managers['theme_manager']
-auto_save = managers['auto_save']
 
+# 테마 적용
 if theme_manager.get_theme_name() == 'dark':
     theme_manager.apply_theme()
 
+# 타이틀
 st.title("💰 개인 가계부 분석기")
+st.markdown("**v3.0 - SQLite 데이터베이스 통합 🚀**")
 
+# ===== 사이드바 =====
 with st.sidebar:
-    st.header("📂 파일 업로드")
-    uploaded_file = st.file_uploader("CSV/Excel", type=['csv', 'xlsx', 'xls'])
-    if uploaded_file:
-        st.session_state['uploaded_file_data'] = uploaded_file.getvalue()
-        st.session_state['uploaded_file_name'] = uploaded_file.name
+    st.header("📂 데이터 관리")
     
-    # 저장된 데이터 정보 표시
-    if auto_save.has_saved_data():
-        info = auto_save.get_data_info()
-        if info:
-            with st.expander("💾 저장된 데이터", expanded=False):
-                st.caption(f"📊 {info['record_count']}건")
-                st.caption(f"📅 {info['date_range']}")
-                st.caption(f"🕐 {info['last_modified']}")
-                
-                if st.button("🔄 저장된 데이터 사용", use_container_width=True):
-                    st.session_state['use_saved'] = True
-                    st.rerun()
+    # 테마 토글
+    st.markdown("### 🎨 테마")
+    current_theme = theme_manager.get_theme_name()
+    
+    col_theme1, col_theme2 = st.columns([3, 1])
+    with col_theme1:
+        st.caption(f"{'🌙 다크' if current_theme == 'dark' else '☀️라이트'} 모드")
+    with col_theme2:
+        if st.button("🔄", help="테마 변경", use_container_width=True):
+            theme_manager.toggle_theme()
+            st.rerun()
     
     st.markdown("---")
+    
+    # 🔥 중요: 파일 업로드 + 자동 저장
+    st.markdown("### 📥 파일 업로드")
+    uploaded_file = st.file_uploader(
+        "CSV/Excel",
+        type=['csv', 'xlsx', 'xls'],
+        help="업로드 시 자동으로 SQLite에 저장됩니다"
+    )
+    
+    # 업로드 즉시 처리
+    if uploaded_file is not None:
+        # 세션에 업로드 파일 저장 (재실행 시에도 유지)
+        if 'last_uploaded_file' not in st.session_state or \
+           st.session_state['last_uploaded_file'] != uploaded_file.name:
+            
+            with st.spinner('📥 파일을 SQLite에 저장하는 중...'):
+                try:
+                    # 임시 파일로 저장
+                    temp_path = f'data/temp_{uploaded_file.name}'
+                    os.makedirs('data', exist_ok=True)
+                    
+                    with open(temp_path, 'wb') as f:
+                        f.write(uploaded_file.getvalue())
+                    
+                    # SQLite로 가져오기
+                    result = db.import_from_csv(temp_path)
+                    
+                    if result['success']:
+                        st.success(f"✅ {result['message']}")
+                        st.session_state['last_uploaded_file'] = uploaded_file.name
+                        st.balloons()
+                        
+                        # 임시 파일 삭제
+                        os.remove(temp_path)
+                        
+                        # 데이터 새로고침 플래그
+                        st.session_state['data_refreshed'] = True
+                    else:
+                        st.error(f"❌ {result['message']}")
+                
+                except Exception as e:
+                    st.error(f"❌ 업로드 실패: {str(e)}")
+    
+    st.markdown("---")
+    
+    # 기존 CSV 데이터 마이그레이션
+    st.markdown("### 🔄 데이터 마이그레이션")
+    
+    csv_path = 'data/user_expenses.csv'
+    
+    if os.path.exists(csv_path):
+        st.info("💾 기존 CSV 데이터 발견!")
+        
+        if st.button("📥 CSV → SQLite 이동", use_container_width=True):
+            with st.spinner('마이그레이션 중...'):
+                result = db.import_from_csv(csv_path)
+                
+                if result['success']:
+                    st.success(result['message'])
+                    
+                    # CSV 백업
+                    backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                    os.rename(csv_path, f'data/{backup_name}')
+                    
+                    st.info(f"✅ 기존 CSV는 {backup_name}로 백업됨")
+                    st.balloons()
+                    st.session_state['data_refreshed'] = True
+                    st.rerun()
+                else:
+                    st.error(result['message'])
+    
+    st.markdown("---")
+    
+    # AI 설정
+    st.header("🤖 AI 설정")
     use_ai = st.checkbox("AI 자동 분류", value=False)
     
     st.markdown("---")
+    
+    # 빠른 거래 입력
     st.markdown("### ⚡ 빠른 거래 입력")
     
     with st.expander("➕ 새 거래 추가", expanded=False):
         with st.form("quick_add_transaction", clear_on_submit=True):
-            add_date = st.date_input(
-                "날짜",
-                value=datetime.now(),
-                help="거래 날짜를 선택하세요"
-            )
+            add_date = st.date_input("날짜", value=datetime.now())
             
-            add_desc = st.text_input(
-                "적요",
-                placeholder="예: 스타벅스",
-                help="거래 내역 설명"
-            )
+            add_desc = st.text_input("적요", placeholder="예: 스타벅스")
             
             col_amount, col_type = st.columns([2, 1])
             
             with col_amount:
-                add_amount = st.number_input(
-                    "금액",
-                    min_value=0,
-                    step=1000,
-                    help="거래 금액 (양수로 입력)"
-                )
+                add_amount = st.number_input("금액", min_value=0, step=1000)
             
             with col_type:
-                add_type = st.selectbox(
-                    "구분",
-                    options=["지출", "수입"]
-                )
+                add_type = st.selectbox("구분", ["지출", "수입"])
             
+            # AI 자동 분류
             if use_ai and add_desc:
                 predicted_cat = managers['classifier'].predict(add_desc)
                 add_category = st.text_input("카테고리", value=predicted_cat)
@@ -126,13 +209,9 @@ with st.sidebar:
                 categories = managers['category_manager'].get_all_categories()
                 add_category = st.selectbox("카테고리", options=categories)
             
-            add_memo = st.text_input(
-                "메모 (선택)",
-                placeholder="추가 메모",
-                help="선택사항"
-            )
+            add_memo = st.text_input("메모 (선택)", placeholder="추가 메모")
             
-            submitted = st.form_submit_button("💾 거래 추가", use_container_width=True)
+            submitted = st.form_submit_button("💾 추가", use_container_width=True)
             
             if submitted:
                 if not add_desc or add_amount == 0:
@@ -141,149 +220,166 @@ with st.sidebar:
                     try:
                         final_amount = -add_amount if add_type == "지출" else add_amount
                         
-                        new_row = pd.DataFrame({
-                            '날짜': [add_date],
-                            '적요': [add_desc],
-                            '금액': [final_amount],
-                            '분류': [add_category],
-                            '메모': [add_memo]
-                        })
-                        
-                        existing_df = auto_save.load_saved_data()
-                        if existing_df is not None:
-                            updated_df = pd.concat([existing_df, new_row], ignore_index=True)
-                        else:
-                            updated_df = new_row
-                        
-                        result = auto_save.save_data(updated_df)
+                        # SQLite에 저장
+                        result = db.add_transaction(
+                            date=add_date.strftime('%Y-%m-%d'),
+                            description=add_desc,
+                            amount=final_amount,
+                            category=add_category,
+                            memo=add_memo
+                        )
                         
                         if result['success']:
-                            st.success("✅ 거래가 추가되었습니다!")
-                            auto_save.create_backup()
+                            st.success("✅ 저장됨!")
+                            st.session_state['data_refreshed'] = True
                             st.rerun()
                         else:
                             st.error(result['message'])
-                        
+                    
                     except Exception as e:
                         st.error(f"❌ 저장 실패: {str(e)}")
     
-    # 백업 관리
     st.markdown("---")
-    with st.expander("🗄️ 백업 관리", expanded=False):
-        backups = auto_save.get_backup_list()
+    
+    # 데이터베이스 정보
+    with st.expander("💾 데이터베이스 정보", expanded=False):
+        conn = db.get_connection()
+        cursor = conn.cursor()
         
-        if backups:
-            st.caption(f"백업 파일: {len(backups)}개")
-            
-            for backup in backups[:5]:
-                col1, col2, col3 = st.columns([2, 1, 1])
-                
-                with col1:
-                    st.caption(f"📁 {backup['date']}")
-                
-                with col2:
-                    if st.button("복원", key=f"restore_{backup['filename']}", use_container_width=True):
-                        result = auto_save.restore_from_backup(backup['filename'])
-                        if result['success']:
-                            st.success(result['message'])
-                            st.rerun()
-                        else:
-                            st.error(result['message'])
-                
-                with col3:
-                    if st.button("삭제", key=f"delete_{backup['filename']}", use_container_width=True):
-                        result = auto_save.delete_backup(backup['filename'])
-                        if result['success']:
-                            st.success(result['message'])
-                            st.rerun()
-                        else:
-                            st.error(result['message'])
-        else:
-            st.info("백업 파일이 없습니다")
+        cursor.execute("SELECT COUNT(*) FROM transactions")
+        total_count = cursor.fetchone()[0]
         
-        if st.button("💾 지금 백업 생성", use_container_width=True):
-            result = auto_save.create_backup()
+        cursor.execute("SELECT date FROM transactions ORDER BY date DESC LIMIT 1")
+        recent = cursor.fetchone()
+        recent_date = recent[0] if recent else "-"
+        
+        conn.close()
+        
+        st.caption(f"📊 총 거래: {total_count}건")
+        st.caption(f"📅 최근: {recent_date}")
+        st.caption(f"📁 위치: data/expense.db")
+        
+        # 백업
+        if st.button("🗄️ 백업", use_container_width=True):
+            result = db.create_backup()
             if result['success']:
-                if not result.get('skipped'):
-                    st.success(result['message'])
-                else:
-                    st.info(result['message'])
+                st.success("✅ 백업 완료")
+                st.caption(f"📁 {result['path']}")
             else:
                 st.error(result['message'])
+# ===== 메인 영역 =====
 
-if uploaded_file is None and st.session_state['uploaded_file_data'] is None:
-    if st.session_state.get('use_saved') or auto_save.has_saved_data():
-        st.info("💾 저장된 데이터를 불러왔습니다")
-    else:
-        st.info("파일을 업로드해주세요")
-        if st.button("샘플 데이터로 체험"):
-            st.session_state['use_sample'] = True
-            st.rerun()
-        st.stop()
+st.markdown("---")
+
+# 데이터 로드
+@st.cache_data(ttl=60)  # 60초 캐시
+def load_data_from_db():
+    """SQLite에서 데이터 로드 (캐싱)"""
+    df_raw = db.get_all_transactions()
+    
+    if df_raw.empty:
+        return pd.DataFrame()
+    
+    # 전처리
+    df = df_raw.copy()
+    
+    if '날짜' not in df.columns and 'date' in df.columns:
+        df['날짜'] = pd.to_datetime(df['date'])
+        df['적요'] = df['description']
+        df['금액'] = df['amount']
+        df['분류'] = df['category']
+        df['메모'] = df.get('memo', '')
+    
+    df['년월'] = df['날짜'].dt.to_period('M').astype(str)
+    df['구분'] = df['금액'].apply(lambda x: '수입' if x > 0 else '지출')
+    df['금액_절대값'] = df['금액'].abs()
+    
+    return df
 
 try:
-    if st.session_state.get('use_sample') and uploaded_file is None:
-        with open('data/sample.csv', 'r', encoding='utf-8-sig') as f:
-            df = load_data(f)
-        st.success(f"✅ 샘플 데이터 ({len(df)}건)")
+    # 데이터 새로고침이 필요하면 캐시 무효화
+    if st.session_state.get('data_refreshed', False):
+        st.cache_data.clear()
+        st.session_state['data_refreshed'] = False
     
-    elif uploaded_file or st.session_state['uploaded_file_data']:
-        if uploaded_file:
-            uploaded_df = load_data(uploaded_file)
-        else:
-            file_data = BytesIO(st.session_state['uploaded_file_data'])
-            file_data.name = st.session_state['uploaded_file_name']
-            uploaded_df = load_data(file_data)
-        
-        df = auto_save.merge_data(uploaded_df)
-        auto_save.save_data(df)
-        
-        with open('data/user_expenses.csv', 'r', encoding='utf-8-sig') as f:
-            df = load_data(f)
-        
-        st.success(f"✅ {len(df)}건 로드 (병합 및 저장 완료)")
+    # 데이터 로드
+    df = load_data_from_db()
     
-    elif auto_save.has_saved_data():
-        with open('data/user_expenses.csv', 'r', encoding='utf-8-sig') as f:
-            df = load_data(f)
-        st.success(f"✅ 저장된 데이터 ({len(df)}건)")
-    
-    else:
-        st.error("데이터를 찾을 수 없습니다")
+    if df.empty:
+        st.info("📝 데이터가 없습니다")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 1️⃣ 샘플 데이터로 시작")
+            if st.button("🚀 샘플 데이터 로드", type="primary", use_container_width=True):
+                sample_path = 'data/sample.csv'
+                
+                if os.path.exists(sample_path):
+                    result = db.import_from_csv(sample_path)
+                    if result['success']:
+                        st.success(result['message'])
+                        st.session_state['data_refreshed'] = True
+                        st.rerun()
+                    else:
+                        st.error(result['message'])
+                else:
+                    st.error("샘플 파일이 없습니다")
+        
+        with col2:
+            st.markdown("### 2️⃣ 파일 업로드")
+            st.info("👈 왼쪽 사이드바에서 CSV/Excel 파일을 업로드하세요")
+        
         st.stop()
     
-    if use_ai:
-        with st.spinner('🤖 AI가 카테고리를 분석 중입니다...'):
-            df = managers['classifier'].auto_categorize_dataframe(df)
-            
-            if '분류_AI' in df.columns:
-                df['분류'] = df['분류_AI']
-                st.success(f"✅ AI 분류 완료")
-            else:
-                st.warning("⚠️ AI 분류에 실패했습니다")
+    # AI 자동 분류 (필요 시)
+    if use_ai and '분류' in df.columns:
+        missing_category = df['분류'].isna() | (df['분류'] == '기타')
         
+        if missing_category.any():
+            with st.spinner('🤖 AI 분류 중...'):
+                df_ai = managers['classifier'].auto_categorize_dataframe(df[missing_category])
+                
+                if '분류_AI' in df_ai.columns:
+                    df.loc[missing_category, '분류'] = df_ai['분류_AI'].values
+                    st.success("✅ AI 분류 완료")
+    
+    # 상태 표시
+    col_status1, col_status2, col_status3 = st.columns(3)
+    
+    with col_status1:
+        st.metric("💾 데이터 소스", "SQLite DB")
+    
+    with col_status2:
+        st.metric("📊 총 거래", f"{len(df)}건")
+    
+    with col_status3:
+        period = f"{df['날짜'].min().strftime('%Y-%m-%d')} ~ {df['날짜'].max().strftime('%Y-%m-%d')}"
+        st.metric("📅 기간", period)
+
 except Exception as e:
-    st.error(f"오류: {e}")
+    st.error(f"❌ 데이터 로드 오류: {str(e)}")
     st.stop()
 
+st.markdown("---")
+# ===== 탭 구성 =====
 from tabs import (
-    dashboard, analysis, monthly_trend, budget, statistics, 
-    data_explorer, category_tab, validator, ai_learning, 
+    dashboard, analysis, monthly_trend, budget, statistics,
+    data_explorer, category_tab, validator, ai_learning,
     savings_goal, recurring, prediction, search
 )
 
-# ✅ 수정: 탭 개수 조정 (13개 → 10개)
 tabs = st.tabs([
-    "📊 대시보드", 
-    "📈 분석", 
-    "📅 월별", 
-    "💰 예산", 
-    "📉 통계", 
-    "🔍 검색",  # 검색 + 탐색 통합
-    "⚙️ 설정",  # 카테고리 + 검증 통합
-    "🤖 AI", 
-    "🎯 스마트",  # 저축 + 반복 + 예측 통합
-    "📄 리포트"  # 내보내기 전용
+    "📊 대시보드",
+    "📈 분석",
+    "📅 월별",
+    "💰 예산",
+    "📉 통계",
+    "🔍 검색",
+    "⚙️ 설정",
+    "🤖 AI",
+    "🎯 스마트",
+    "📄 리포트"
 ])
 
 with tabs[0]:
@@ -301,7 +397,6 @@ with tabs[3]:
 with tabs[4]:
     statistics.render(df)
 
-# ✅ 수정: 검색 탭 (탐색 + 검색 통합)
 with tabs[5]:
     subtab1, subtab2 = st.tabs(["🔍 검색", "🗂️ 탐색"])
     
@@ -316,7 +411,6 @@ with tabs[5]:
     with subtab2:
         data_explorer.render(df)
 
-# ✅ 수정: 설정 탭 (카테고리 + 검증 통합)
 with tabs[6]:
     subtab1, subtab2 = st.tabs(["📁 카테고리", "✅ 검증"])
     
@@ -329,7 +423,6 @@ with tabs[6]:
 with tabs[7]:
     ai_learning.render(df, managers['classifier'])
 
-# ✅ 수정: 스마트 기능 탭 (저축 + 반복 + 예측 통합)
 with tabs[8]:
     subtab1, subtab2, subtab3 = st.tabs(["🎯 저축 목표", "🔄 반복 거래", "🔮 예측 & 비교"])
     
@@ -342,7 +435,6 @@ with tabs[8]:
     with subtab3:
         prediction.render(df, managers['budget_manager'])
 
-# ✅ 새로 추가: 리포트 탭
 with tabs[9]:
     st.subheader("📄 데이터 내보내기")
     
@@ -381,5 +473,40 @@ with tabs[9]:
                     )
                 except Exception as e:
                     st.error(f"PDF 생성 실패: {str(e)}")
+    
+    st.markdown("---")
+    
+    # 데이터베이스 백업 다운로드
+    st.markdown("### 데이터베이스 백업")
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        if st.button("💾 SQLite 백업 파일 생성", use_container_width=True):
+            result = db.create_backup()
+            if result['success']:
+                st.success(f"✅ 백업 완료: {result['path']}")
+            else:
+                st.error(result['message'])
+    
+    with col4:
+        if st.button("📤 CSV로 내보내기", use_container_width=True):
+            result = db.export_to_csv('data/full_export.csv')
+            if result['success']:
+                st.success("✅ data/full_export.csv 생성")
+                
+                # 다운로드 버튼
+                with open('data/full_export.csv', 'rb') as f:
+                    st.download_button(
+                        label="📥 CSV 다운로드",
+                        data=f,
+                        file_name=f"expense_export_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            else:
+                st.error(result['message'])
 
-st.caption("Expense Analyzer v2.5 | 💾 자동 저장 활성화")
+# 푸터
+st.markdown("---")
+st.caption("💰 Expense Analyzer v3.0 | SQLite 데이터베이스 통합 🚀")
