@@ -21,7 +21,6 @@ from utils.auto_save import AutoSaveManager
 from utils.search_engine import SearchEngine
 from utils.favorites_manager import FavoritesManager
 from utils.advanced_filter import AdvancedFilter
-from tabs import search
 
 st.set_page_config(page_title="Expense Analyzer", page_icon="💰", layout="wide")
 
@@ -236,20 +235,15 @@ try:
             file_data.name = st.session_state['uploaded_file_name']
             uploaded_df = load_data(file_data)
         
-        # 병합
         df = auto_save.merge_data(uploaded_df)
-        
-        # 저장 후 다시 load_data로 처리 (타입 변환)
         auto_save.save_data(df)
         
-        # 🔥 수정: 저장된 파일을 다시 load_data로 읽기
         with open('data/user_expenses.csv', 'r', encoding='utf-8-sig') as f:
             df = load_data(f)
         
         st.success(f"✅ {len(df)}건 로드 (병합 및 저장 완료)")
     
     elif auto_save.has_saved_data():
-        # 🔥 수정: 직접 load_data로 읽기
         with open('data/user_expenses.csv', 'r', encoding='utf-8-sig') as f:
             df = load_data(f)
         st.success(f"✅ 저장된 데이터 ({len(df)}건)")
@@ -272,33 +266,120 @@ except Exception as e:
     st.error(f"오류: {e}")
     st.stop()
 
-from tabs import dashboard, analysis, monthly_trend, budget, statistics, data_explorer, category_tab, validator, ai_learning, savings_goal, recurring, prediction
+from tabs import (
+    dashboard, analysis, monthly_trend, budget, statistics, 
+    data_explorer, category_tab, validator, ai_learning, 
+    savings_goal, recurring, prediction, search
+)
 
-tabs = st.tabs(["📊 대시보드", "📈 분석", "📅 월별", "💰 예산", "📉 통계", "🔍 탐색", "📁 카테고리", "✅ 검증", "🤖 AI", "🎯 저축", "🔄 반복", "🔮 예측", "🔍 검색"])
+# ✅ 수정: 탭 개수 조정 (13개 → 10개)
+tabs = st.tabs([
+    "📊 대시보드", 
+    "📈 분석", 
+    "📅 월별", 
+    "💰 예산", 
+    "📉 통계", 
+    "🔍 검색",  # 검색 + 탐색 통합
+    "⚙️ 설정",  # 카테고리 + 검증 통합
+    "🤖 AI", 
+    "🎯 스마트",  # 저축 + 반복 + 예측 통합
+    "📄 리포트"  # 내보내기 전용
+])
 
 with tabs[0]:
     dashboard.render(df, managers['budget_manager'])
+
 with tabs[1]:
     analysis.render(df)
+
 with tabs[2]:
     monthly_trend.render(df)
+
 with tabs[3]:
     budget.render(df, managers['budget_manager'])
+
 with tabs[4]:
     statistics.render(df)
+
+# ✅ 수정: 검색 탭 (탐색 + 검색 통합)
 with tabs[5]:
-    data_explorer.render(df)
+    subtab1, subtab2 = st.tabs(["🔍 검색", "🗂️ 탐색"])
+    
+    with subtab1:
+        search.render(
+            df,
+            managers['search_engine'],
+            managers['favorites_manager'],
+            managers['advanced_filter']
+        )
+    
+    with subtab2:
+        data_explorer.render(df)
+
+# ✅ 수정: 설정 탭 (카테고리 + 검증 통합)
 with tabs[6]:
-    category_tab.render(df, managers['category_manager'])
+    subtab1, subtab2 = st.tabs(["📁 카테고리", "✅ 검증"])
+    
+    with subtab1:
+        category_tab.render(df, managers['category_manager'])
+    
+    with subtab2:
+        validator.render(df, managers['data_validator'])
+
 with tabs[7]:
-    validator.render(df, managers['data_validator'])
-with tabs[8]:
     ai_learning.render(df, managers['classifier'])
+
+# ✅ 수정: 스마트 기능 탭 (저축 + 반복 + 예측 통합)
+with tabs[8]:
+    subtab1, subtab2, subtab3 = st.tabs(["🎯 저축 목표", "🔄 반복 거래", "🔮 예측 & 비교"])
+    
+    with subtab1:
+        savings_goal.render(df, managers['savings_goal_manager'])
+    
+    with subtab2:
+        recurring.render(df, managers['recurring_manager'], managers['category_manager'])
+    
+    with subtab3:
+        prediction.render(df, managers['budget_manager'])
+
+# ✅ 새로 추가: 리포트 탭
 with tabs[9]:
-    savings_goal.render(df, managers['savings_goal_manager'])
-with tabs[10]:
-    recurring.render(df, managers['recurring_manager'], managers['category_manager'])
-with tabs[11]:
-    prediction.render(df, managers['budget_manager'])
+    st.subheader("📄 데이터 내보내기")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Excel 내보내기")
+        if st.button("📊 통계 Excel 다운로드", use_container_width=True):
+            from utils.preprocess import get_statistics
+            
+            with st.spinner("Excel 생성 중..."):
+                stats = get_statistics(df)
+                excel_buffer = managers['export_manager'].export_statistics_to_excel(df, stats)
+                
+                st.download_button(
+                    label="📥 Excel 파일 다운로드",
+                    data=excel_buffer,
+                    file_name=f"expense_statistics_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+    
+    with col2:
+        st.markdown("### PDF 리포트")
+        if st.button("📄 PDF 리포트 생성", use_container_width=True):
+            with st.spinner("PDF 생성 중..."):
+                try:
+                    pdf_buffer = managers['pdf_generator'].generate_report(df, managers['budget_manager'])
+                    
+                    st.download_button(
+                        label="📥 PDF 다운로드",
+                        data=pdf_buffer,
+                        file_name=f"expense_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"PDF 생성 실패: {str(e)}")
 
 st.caption("Expense Analyzer v2.5 | 💾 자동 저장 활성화")
