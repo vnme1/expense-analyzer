@@ -9,14 +9,14 @@ from .preprocess import (
     summarize_by_month,
     get_summary_metrics,
     filter_by_date_range,
-    get_statistics  # 🆕 추가 (패키지 B에서 이미 있어야 함)
+    get_statistics  # (패키지 B에서 이미 있어야 함)
 )
 
 from .ai_categorizer import CategoryClassifier
 from .budget_manager import BudgetManager
 from .pdf_generator import PDFReportGenerator
 
-# 🆕 패키지 C: 3개 모듈 추가
+# 패키지 C: 3개 모듈 추가
 from .category_manager import CategoryManager
 from .data_validator import DataValidator
 from .export_manager import ExportManager
@@ -28,27 +28,27 @@ __all__ = [
     'summarize_by_month',
     'get_summary_metrics',
     'filter_by_date_range',
-    'get_statistics',  # 🆕 추가
+    'get_statistics',  
     
     # 핵심 기능
     'CategoryClassifier',
     'BudgetManager',
     'PDFReportGenerator',
     
-    # 🆕 패키지 C 추가
+    # 패키지 C 추가
     'CategoryManager',
     'DataValidator',
     'ExportManager',
 
-    # 🆕 Phase 1: 편의성 기능
+    # Phase 1: 편의성 기능
     'ThemeManager',
     'SavingsGoalManager',
     'RecurringTransactionManager',
 
-    # 🆕 Phase 2: 스마트 기능
+    # Phase 2: 스마트 기능
     'TagManager',
     'ComparisonAnalyzer',
     'ExpensePredictor',
 ]
 
-__version__ = '2.5.0'  # 🆕 버전 업데이트 (2.1.0 → 2.3.0)
+__version__ = '2.5.0'  # 버전 업데이트 (2.1.0 → 2.3.0)

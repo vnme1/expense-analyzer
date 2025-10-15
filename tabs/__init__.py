@@ -9,12 +9,13 @@ from . import monthly_trend
 from . import budget
 from . import statistics
 from . import data_explorer
-from . import category_tab  # ✅ 파일명 변경됨
+from . import category_tab
 from . import validator
 from . import ai_learning
 from . import savings_goal
 from . import recurring
 from . import prediction
+from . import search  # 🆕 추가
 
 __all__ = [
     'dashboard',
@@ -22,6 +23,7 @@ __all__ = [
     'monthly_trend',
     'budget',
     'statistics',
+    'search',  # 🆕 추가
     'data_explorer',
     'category_tab',
     'validator',

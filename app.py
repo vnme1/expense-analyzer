@@ -18,6 +18,10 @@ from utils.tag_manager import TagManager
 from utils.comparison_analyzer import ComparisonAnalyzer
 from utils.expense_predictor import ExpensePredictor
 from utils.auto_save import AutoSaveManager
+from utils.search_engine import SearchEngine
+from utils.favorites_manager import FavoritesManager
+from utils.advanced_filter import AdvancedFilter
+from tabs import search
 
 st.set_page_config(page_title="Expense Analyzer", page_icon="💰", layout="wide")
 
@@ -45,7 +49,10 @@ def get_managers():
         'tag_manager': TagManager(),
         'comparison_analyzer': ComparisonAnalyzer(),
         'expense_predictor': ExpensePredictor(),
-        'auto_save': AutoSaveManager()
+        'auto_save': AutoSaveManager(),
+        'search_engine': SearchEngine(),
+        'favorites_manager': FavoritesManager(),
+        'advanced_filter': AdvancedFilter()
     }
 
 managers = get_managers()
@@ -267,7 +274,7 @@ except Exception as e:
 
 from tabs import dashboard, analysis, monthly_trend, budget, statistics, data_explorer, category_tab, validator, ai_learning, savings_goal, recurring, prediction
 
-tabs = st.tabs(["📊 대시보드", "📈 분석", "📅 월별", "💰 예산", "📉 통계", "🔍 탐색", "📁 카테고리", "✅ 검증", "🤖 AI", "🎯 저축", "🔄 반복", "🔮 예측"])
+tabs = st.tabs(["📊 대시보드", "📈 분석", "📅 월별", "💰 예산", "📉 통계", "🔍 탐색", "📁 카테고리", "✅ 검증", "🤖 AI", "🎯 저축", "🔄 반복", "🔮 예측", "🔍 검색"])
 
 with tabs[0]:
     dashboard.render(df, managers['budget_manager'])
